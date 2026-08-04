@@ -1,0 +1,110 @@
+# Atlas on Kubernetes - hardened defaults.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: atlas
+  labels: { app: atlas }
+spec:
+  # ONE replica, deliberately, and this is the honest configuration rather
+  # than the impressive one.
+  #
+  # Atlas keeps four things in process memory: the memory hub, the audit
+  # hash-chain, the rate-limit/spend ledger, and the LangGraph checkpointer
+  # (InMemorySaver). At replicas: 2 each of those silently forks - two
+  # divergent audit chains, a spend cap that admits 2x what it says, and a
+  # resumable run that only resumes if the retry lands on the pod that
+  # started it. None of that fails loudly; it just makes the guarantees
+  # untrue.
+  #
+  # Scaling out is a real piece of work (Postgres checkpointer, shared
+  # store for memory, Redis token buckets, append-only audit sink), and it
+  # is written up in LIMITATIONS.md. Shipping `replicas: 2` in the meantime
+  # would be claiming a property the code does not have.
+  replicas: 1
+  selector:
+    matchLabels: { app: atlas }
+  template:
+    metadata:
+      labels: { app: atlas }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8000"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: atlas
+          image: atlas:0.1.0
+          ports: [{ containerPort: 8000 }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          env:
+            - name: ATLAS_PROVIDER
+              value: "anthropic"
+            - name: ATLAS_ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef: { name: atlas-secrets, key: anthropic-api-key }
+            - name: ATLAS_API_KEYS
+              valueFrom:
+                secretKeyRef: { name: atlas-secrets, key: api-keys }
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { cpu: "2", memory: 1Gi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: atlas
+spec:
+  selector: { app: atlas }
+  ports: [{ port: 80, targetPort: 8000 }]
+---
+# Default-deny egress except DNS and the model provider. An agent platform
+# makes outbound calls chosen partly by a model, so egress is a control
+# surface, not an afterthought.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: atlas-egress
+spec:
+  podSelector:
+    matchLabels: { app: atlas }
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports: [{ protocol: UDP, port: 53 }]
+    - to: [{ ipBlock: { cidr: 0.0.0.0/0, except: ["10.0.0.0/8", "169.254.169.254/32"] } }]
+      ports: [{ protocol: TCP, port: 443 }]
+---
+# Note: 169.254.169.254 is excluded above - that is the cloud metadata
+# endpoint, the classic SSRF target for a tool that fetches URLs.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: atlas
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: atlas }

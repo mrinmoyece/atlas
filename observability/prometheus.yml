@@ -1,0 +1,20 @@
+# Prometheus scrape config for Atlas.
+# /metrics is authenticated (it exposes spend), so a bearer token is required.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: atlas
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/atlas_token
+    static_configs:
+      - targets: ["api:8000"]
+
+# Alert ideas (wire to Alertmanager):
+#   increase(atlas_cost_usd_total[1h]) > budget            -> spend runaway
+#   rate(atlas_specialist_runs_total{outcome="error"}[10m]) -> agent failures
+#   rate(atlas_auth_total{outcome="denied"}[5m])            -> credential probing
+#   rate(atlas_rate_limited_total[5m])                      -> abuse or a stuck client
+#   histogram_quantile(0.95, atlas_run_duration_ms_bucket)  -> latency regression
