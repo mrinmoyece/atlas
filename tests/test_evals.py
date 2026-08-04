@@ -222,3 +222,29 @@ def test_every_declared_trap_can_actually_be_triggered():
                 f"{repo}: trap {item.rule!r} at {item.path!r} cannot be triggered - "
                 f"a finding citing {cited!r} does not match it"
             )
+
+
+def test_fixture_directories_survive_a_clone():
+    """Git does not track empty directories.
+
+    `legacy-billing/.github/workflows` is meaningfully empty - it is what
+    the `no_ci` ground truth points at - so on a fresh clone it simply did
+    not exist, the citation stopped resolving, and the hallucination rate
+    went from 0.000 to 0.083, failing the gate. Green in the working copy,
+    red in a fresh checkout.
+    """
+    truth = load_ground_truth(GROUND_TRUTH)
+    for repo, gt in truth.items():
+        root = FIXTURES / repo
+        for item in [*gt.must_find, *gt.should_not_find]:
+            if item.path in (".", ""):
+                continue
+            target = root / item.path.rstrip("/")
+            if not target.is_dir():
+                continue
+            assert any(target.iterdir()), (
+                f"{repo}: ground truth cites directory {item.path!r}, which is "
+                "empty - git will not track it and it will not survive a clone. "
+                "Add a marker file explaining why it is empty, taking care to "
+                "put it somewhere that does not change what the fixture means."
+            )

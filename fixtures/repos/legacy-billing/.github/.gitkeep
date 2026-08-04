@@ -1,0 +1,15 @@
+Keeps `.github/` in git, because git does not track empty directories.
+
+`legacy-billing` is the unsafe fixture and the `no_ci` ground-truth entry
+cites `.github`: the directory exists, and there is no workflow in it. On a
+fresh clone the directory vanished entirely, the citation stopped resolving,
+and the measured hallucination rate went 0.000 -> 0.083, failing the eval
+gate. Green in the working copy, red in a clean checkout.
+
+This marker lives in `.github/` rather than `.github/workflows/` on purpose.
+`repo_stats` detects CI with `r.startswith(".github/workflows/")`, so a
+placeholder one level deeper would have made `has_ci` report **true** for
+the repository whose entire job is to have no CI - fixing the clone bug by
+silently corrupting the fixture.
+
+Do not move this file into `workflows/`, and do not add a workflow beside it.
