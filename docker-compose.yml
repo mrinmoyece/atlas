@@ -1,0 +1,45 @@
+# Local stack. Runs offline with the scripted model by default.
+#
+#   docker compose up --build
+#   curl -s localhost:8000/healthz
+#
+# Generate an API key hash:
+#   python -c "from atlas.security import hash_key; print(hash_key('my-key'))"
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      ATLAS_PROVIDER: ${ATLAS_PROVIDER:-scripted}
+      # The package is pip-installed in the image, so source-relative path
+      # discovery does not apply - point at the copied fixtures explicitly.
+      ATLAS_FIXTURES_ROOT: /app/fixtures/repos
+      ATLAS_PROJECT_ROOT: /app
+      ATLAS_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ATLAS_OTEL_ENDPOINT: ${ATLAS_OTEL_ENDPOINT:-}
+      # key_id:sha256(key):roles  -- default key is "dev-analyst-key"
+      ATLAS_API_KEYS: >-
+        dev:ddd2c99c94210b231bbc43b24dffeb1ad509ccb208b678afc6f17fd8c8704fe2:analyst
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    profiles: ["tracing"]
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    profiles: ["metrics"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
