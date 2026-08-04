@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
+      - run: pip install ruff
+      - run: ruff check src tests benchmarks evals scripts
+      - run: ruff format --check src tests benchmarks evals scripts
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
+      - run: pip install -e ".[dev,mcp]"
+      - run: pytest -q --tb=short
+
+  # Tier 1 of the eval strategy: fast behavioural smoke on every PR.
+  evals-smoke:
+    name: Evals (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
+      - run: pip install -e ".[dev]"
+      - run: python -m evals.gate --tier smoke
+
+  # Tier 2: the merge gate. Agent *quality* is a blocking check, exactly
+  # like a failing unit test - this is the job most teams are missing.
+  evals-gate:
+    name: Evals (quality gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
+      - run: pip install -e ".[dev]"
+      - run: python -m evals.gate --tier standard
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: eval-report, path: evals/last_run.md }
+
+  benchmark:
+    name: Pattern benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
+      - run: pip install -e ".[dev]"
+      - run: python -m benchmarks.run_benchmark
+      - run: python -m benchmarks.memory_ab
+      - uses: actions/upload-artifact@v4
+        with: { name: benchmark-results, path: benchmarks/RESULTS.md }
+
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
+      - run: pip install -e "." pip-audit cyclonedx-bom
+      - name: Dependency vulnerability audit
+        # No `|| true`, and no placeholder ignore. A security job that
+        # cannot fail the build is a badge, not a control - and an
+        # `--ignore-vuln GHSA-placeholder` entry teaches whoever comes next
+        # that the ignore list is where you put things to make CI quiet.
+        # Real advisories get a dated, justified entry or they get fixed.
+        run: pip-audit --strict
+      - name: Generate SBOM (CycloneDX)
+        run: cyclonedx-py environment -o sbom.json
+      - uses: actions/upload-artifact@v4
+        with: { name: sbom, path: sbom.json }
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t atlas:ci .
+      - name: Verify container runs as non-root
+        run: |
+          uid=$(docker run --rm --entrypoint id atlas:ci -u)
+          echo "container uid: $uid"
+          test "$uid" != "0"
