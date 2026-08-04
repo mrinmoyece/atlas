@@ -1,0 +1,98 @@
+# Ground truth for the fixture repositories.
+#
+# This file is the reason Atlas can report precision and recall instead of
+# vibes. Every issue below was deliberately planted in fixtures/repos/, so
+# we know the complete answer key: anything an agent reports that is not
+# here is a false positive, and anything here it misses is a false negative.
+#
+# `must_find` items are scored. `should_not_find` are traps: plausible-
+# looking code that is actually fine. An agent that flags them is being
+# punished for pattern-matching without reading, which is the single most
+# common failure of LLM code review.
+
+legacy-billing:
+  description: Deliberately unsafe legacy service - the high-signal case.
+  must_find:
+    - rule: sql_injection
+      category: security
+      path: src/db.py
+      min_severity: high
+      # TWO distinct sinks in this file: string concatenation on line 7 and
+      # % formatting on line 12. Declaring the count is what stops the second
+      # genuine finding being scored as a hallucination.
+      max_instances: 2
+      note: string concatenation (L7) and % formatting (L12) into SQL
+    - rule: hardcoded_secret
+      category: security
+      path: src/db.py
+      min_severity: high
+      note: DB_PASSWORD literal
+    - rule: hardcoded_secret
+      category: security
+      path: src/api.py
+      min_severity: high
+      note: API_KEY literal
+    - rule: command_injection
+      category: security
+      path: src/api.py
+      min_severity: critical
+      note: os.popen on user-controlled query parameter
+    - rule: unsafe_deserialization
+      category: security
+      path: src/api.py
+      min_severity: high
+      note: pickle.loads on request body
+    - rule: missing_authentication
+      category: security
+      path: src/api.py
+      min_severity: high
+      note: money-moving endpoint with no auth check
+    - rule: missing_resilience
+      category: architecture
+      path: src/api.py
+      min_severity: medium
+      note: outbound HTTP with no timeout or circuit breaker
+    - rule: vulnerable_dependency
+      category: dependency
+      path: requirements.txt
+      min_severity: high
+      note: pyyaml 3.13 and django 1.11 are known-vulnerable
+    - rule: unpinned_dependency
+      category: dependency
+      path: requirements.txt
+      min_severity: medium
+      note: flask and requests float freely
+    - rule: no_ci
+      category: delivery
+      path: .github
+      min_severity: medium
+      note: no CI workflow present
+    - rule: no_tests
+      category: delivery
+      path: .
+      min_severity: high
+      note: no test suite at all
+  should_not_find:
+    - rule: sql_injection
+      path: README.md
+      note: documentation mentioning SQL is not a vulnerability
+
+modern-payments:
+  description: Healthy service - the false-positive control case.
+  must_find: []
+  should_not_find:
+    - rule: sql_injection
+      path: src/repository.py
+      note: parameterised query with ? placeholders is correct
+    - rule: missing_resilience
+      path: src/client.py
+      note: timeout is explicitly configured
+    - rule: no_ci
+      path: .github/workflows/ci.yml
+      note: CI workflow exists
+    - rule: no_tests
+      path: tests/
+      note: tests exist
+    - rule: hardcoded_secret
+      path: src/client.py
+      note: base_url is injected, not a credential
