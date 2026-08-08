@@ -1,4 +1,4 @@
-.PHONY: install test lint fmt evals gate benchmark memory-ab demo run docker up down security sbom all
+.PHONY: install test lint fmt evals gate perf perf-report load benchmark memory-ab demo run docker up down security sbom all
 
 install:
 	pip install -e ".[dev,mcp]"
@@ -15,7 +15,17 @@ fmt:
 evals:
 	python -m evals.gate --tier standard
 
-gate: lint test evals
+perf:
+	python -m perf.benchmark --concurrency 6 --iterations 12
+
+perf-report:
+	python -m perf.benchmark --concurrency 6 --iterations 12 --write
+
+load:
+	@echo "Against a DEPLOYED instance (not CI):"
+	@echo "  locust -f perf/locustfile.py --host http://localhost:8000"
+
+gate: lint test evals perf
 
 benchmark:
 	python -m benchmarks.run_benchmark

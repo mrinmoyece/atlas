@@ -104,3 +104,17 @@ jobs:
           uid=$(docker run --rm --entrypoint id atlas:ci -u)
           echo "container uid: $uid"
           test "$uid" != "0"
+
+  performance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -e ".[dev]"
+      - name: Latency budgets
+        # Budgets are derived from measured baselines with ~2x headroom, so
+        # a shared runner does not trip them but a 2x regression does. The
+        # step exits non-zero on a breach - a performance number nobody
+        # enforces drifts, and the drift is noticed by a user, not by CI.
+        run: python -m perf.benchmark --concurrency 6 --iterations 12

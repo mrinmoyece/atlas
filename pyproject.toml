@@ -43,6 +43,9 @@ build-backend = "hatchling.build"
 packages = ["src/atlas"]
 
 [tool.pytest.ini_options]
+# `perf` is a top-level package alongside `src`, so the gate's own tests can
+# import it. A performance gate that is not itself tested is a badge.
+pythonpath = [".", "src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-q"
@@ -56,6 +59,10 @@ src = ["src", "tests", "benchmarks", "evals"]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
+# The load profile picks a random goal from a fixed list - `random` is the
+# right tool for that and has nothing to do with cryptography. Locust's
+# event hooks are called by the framework with untyped kwargs.
+"perf/locustfile.py" = ["S311", "ANN001", "ANN003"]
 # FastAPI's dependency-injection idiom is `param: T = Depends(...)`, which is
 # a function call in a default argument by construction. B008 is correct in
 # general and wrong here; restructuring to satisfy it would mean abandoning
