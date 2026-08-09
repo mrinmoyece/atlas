@@ -1,6 +1,6 @@
 # Multi-stage, non-root, minimal runtime. The digest makes rebuilds independent
 # of mutable Docker Hub tags; Dependabot keeps it current.
-FROM python:3.12-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36 AS builder
+FROM python:3.14-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc AS builder
 WORKDIR /build
 COPY pyproject.toml README.md LICENSE ./
 COPY scripts/requirements-runtime.txt ./scripts/requirements-runtime.txt
@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir --prefix=/install --require-hashes \
         -r scripts/requirements-runtime.txt \
     && pip install --no-cache-dir --prefix=/install --no-deps .
 
-FROM python:3.12-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36
+FROM python:3.14-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc
 # Hardening: dedicated unprivileged user and a read-only image filesystem in
 # Kubernetes. The audit mount is the sole persistent writable application path.
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin atlas \
