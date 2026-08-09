@@ -80,14 +80,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
-      - run: pip install -e "." pip-audit cyclonedx-bom
+      - run: pip install pip-audit cyclonedx-bom
       - name: Dependency vulnerability audit
         # No `|| true`, and no placeholder ignore. A security job that
         # cannot fail the build is a badge, not a control - and an
         # `--ignore-vuln GHSA-placeholder` entry teaches whoever comes next
         # that the ignore list is where you put things to make CI quiet.
         # Real advisories get a dated, justified entry or they get fixed.
-        run: pip-audit --strict
+        run: |
+          python3 -c "import tomllib; f=open('pyproject.toml','rb'); d=tomllib.load(f); print('\n'.join(d.get('project',{}).get('dependencies',[])))" > /tmp/core_deps.txt
+          pip install -r /tmp/core_deps.txt
+          pip-audit --strict
       - name: Generate SBOM (CycloneDX)
         run: cyclonedx-py environment -o sbom.json
       - uses: actions/upload-artifact@v4
