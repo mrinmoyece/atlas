@@ -77,6 +77,21 @@ def record_specialist(
     )
 
 
+def record_graph_cache(*, hit: bool) -> None:
+    """Compiled-graph reuse.
+
+    Compilation costs ~10ms of a ~38ms run - LangGraph runs `inspect.
+    getsource` over every node during compile - so the hit rate is a direct
+    read on wasted work. A miss rate near 100% means callers are building a
+    fresh model per run and the cache is buying nothing, which is worth
+    seeing rather than assuming.
+    """
+    _inc(
+        "atlas_graph_compile_cache_hits_total" if hit else "atlas_graph_compile_cache_misses_total",
+        "Compiled-graph cache outcomes",
+    )
+
+
 def record_run(
     *, repo: str, findings: int, cost_usd: float, duration_ms: int, failed_specialists: int
 ) -> None:
