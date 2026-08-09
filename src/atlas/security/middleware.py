@@ -102,11 +102,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return self._authenticator.authenticate(token).subject
             except Exception:  # noqa: BLE001 - unauthenticated is not an error here
                 pass
-        # Anonymous and bad-key traffic is bucketed by source address, so one
-        # attacker cannot exhaust a legitimate principal's bucket by guessing
-        # keys - and cannot escape limiting by presenting none.
-        client = request.client
-        return f"anon:{client.host if client else 'unknown'}"
+        # Invalid traffic shares one bounded bucket. Keying this by source IP
+        # lets a distributed probe allocate permanent limiter state one IP at
+        # a time. Authenticated principals retain independent buckets.
+        return "anonymous"
 
     async def dispatch(self, request: Request, call_next) -> Response:
         if not request.url.path.startswith(self._prefix):

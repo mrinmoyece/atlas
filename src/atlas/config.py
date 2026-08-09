@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -52,6 +53,12 @@ class Settings(BaseSettings):
     daily_spend_usd: float = 25.0
     requests_per_minute: float = 60.0
     rate_limit_burst: float | None = None
+    rate_limit_max_buckets: int = 10_000
+    rate_limit_bucket_ttl_s: float = 3_600.0
+
+    # Audit
+    audit_sink: Path | None = None
+    audit_memory_max_entries: int = 10_000
 
     # Memory
     memory_enabled: bool = True

@@ -47,6 +47,8 @@ mitigated by surfacing it in the verdict and in `atlas_specialist_runs_total`.
 validated output, budgets. Prompt-level guard as defence in depth.
 **Residual risk.** Injection can still influence *content* (a misleading
 summary). Findings must be treated as evidence-backed leads, not verdicts.
+Suspected influence is a security incident even when no tool boundary was
+crossed; follow the prompt-injection playbook in `RUNBOOK.md`.
 
 ## 7. Hostile or compromised MCP server
 **Behaviour.** Allowlist by server and tool, description sanitisation with

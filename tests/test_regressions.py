@@ -197,6 +197,23 @@ def test_graph_writes_back_to_memory(legacy_root):
     assert stats["semantic"] > 0 and stats["episodic"] > 0 and stats["runs"] > 0
 
 
+def test_graph_learns_under_the_repository_context_not_unknown(legacy_root):
+    from atlas.evals.scenarios import model_for
+    from atlas.graph.build import run_due_diligence
+
+    hub = MemoryHub(enabled=True)
+    run_due_diligence(
+        repo="legacy-billing",
+        repo_root=str(legacy_root),
+        model=model_for("legacy-billing"),
+        memory=hub,
+        pattern_name="react",
+    )
+
+    assert hub.procedural.table("repo:standard")
+    assert hub.procedural.table("repo:unknown") == []
+
+
 def test_explicit_pattern_is_not_overridden_by_memory(legacy_root):
     """Procedural memory advises; it must never silently replace a caller's
     explicit choice."""

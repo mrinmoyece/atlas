@@ -97,15 +97,23 @@ POST /v1/analyses
 
 ## Scaling notes
 
-Single-process today. The pieces that would need to change for a fleet, and
+Single-process, single-replica today. The pieces that would need to change for a fleet, and
 what would not:
 
 * **Would change:** the rate limiter and memory are in-process; both need a
-  shared store (Redis, Postgres/pgvector). The graph checkpointer would move
-  from `InMemorySaver` to a durable checkpointer.
+  shared store (Redis, PostgreSQL/pgvector). The graph checkpointer would move
+  from `InMemorySaver` to a durable PostgreSQL checkpointer. Identity would
+  move from static API keys to generic OIDC/JWKS; every state key would gain an
+  enforced tenant boundary; audit would be anchored off-box in WORM storage;
+  secrets would come from a managed store. Multi-region HA would additionally
+  need replicated stores, failover and reconciliation.
 * **Would not change:** domain types, patterns, evals, tool contracts, or the
   security model. Those are the parts that took the thinking.
 
 For durable long-running execution (crash recovery, human-in-the-loop pauses
 measured in days), the right move is to run the graph on a durable runtime
 rather than reinvent one — see `docs/LIMITATIONS.md`.
+
+These are extension paths, not latent capabilities. The current Kubernetes
+manifest deliberately remains at one replica because scaling it horizontally
+would silently fork checkpoint, memory, budgets and audit state.

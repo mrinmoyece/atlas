@@ -11,3 +11,6 @@ tests
 benchmarks
 sbom.json
 .env
+.env.*
+observability/atlas-prometheus-token
+k8s/secrets.local.yaml

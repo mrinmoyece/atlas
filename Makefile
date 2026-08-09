@@ -1,59 +1,83 @@
-.PHONY: install test lint fmt evals gate perf perf-report load benchmark memory-ab demo run docker up down security sbom all
+.PHONY: install test lint fmt evals evals-smoke generated-check gate perf perf-report load benchmark memory-ab demo run docker local-config up down clean security sbom runtime-lock all
+
+PYTHON ?= python3
 
 install:
-	pip install -e ".[dev,mcp]"
+	$(PYTHON) -m pip install --require-hashes -r scripts/requirements-runtime.txt
+	$(PYTHON) -m pip install --no-deps -e .
+	$(PYTHON) -m pip install "pytest>=8.0" "pytest-asyncio>=0.23" "ruff>=0.15.17,<0.16" \
+		"pip-audit>=2.7" "uv>=0.8"
 
 test:
-	pytest -q
+	$(PYTHON) -m pytest -q
 
 lint:
-	ruff check src tests benchmarks evals scripts
+	$(PYTHON) -m ruff check src tests perf benchmarks evals scripts
+	$(PYTHON) -m ruff format --check src tests perf benchmarks evals scripts
 
 fmt:
-	ruff check --fix src tests benchmarks evals scripts
+	$(PYTHON) -m ruff check --fix src tests perf benchmarks evals scripts
+	$(PYTHON) -m ruff format src tests perf benchmarks evals scripts
 
 evals:
-	python -m evals.gate --tier standard
+	$(PYTHON) -m evals.gate --tier standard
+
+evals-smoke:
+	$(PYTHON) -m evals.gate --tier smoke
 
 perf:
-	python -m perf.benchmark --concurrency 6 --iterations 12
+	$(PYTHON) -m perf.benchmark --concurrency 6 --iterations 12
 
 perf-report:
-	python -m perf.benchmark --concurrency 6 --iterations 12 --write
+	$(PYTHON) -m perf.benchmark --concurrency 6 --iterations 12 --write
 
 load:
 	@echo "Against a DEPLOYED instance (not CI):"
 	@echo "  locust -f perf/locustfile.py --host http://localhost:8000"
 
-gate: lint test evals perf
+generated-check: benchmark memory-ab evals
+	git diff --exit-code -- benchmarks/RESULTS.md docs/MEMORY.md evals/last_run.md
+
+gate: lint test evals generated-check perf
 
 benchmark:
-	python -m benchmarks.run_benchmark
+	$(PYTHON) -m benchmarks.run_benchmark
 
 memory-ab:
-	python -m benchmarks.memory_ab
+	$(PYTHON) -m benchmarks.memory_ab
 
 demo:
-	python scripts/demo.py
+	$(PYTHON) scripts/demo.py
 
 run:
-	uvicorn atlas.api.app:app --reload
+	$(PYTHON) -m uvicorn atlas.api.app:app --reload
 
 docker:
 	docker build -t atlas:local .
+
+local-config:
+	$(PYTHON) scripts/init_local.py
 
 up:
 	docker compose up --build
 
 down:
+	docker compose down
+
+clean:
 	docker compose down -v
 
 security:
-	pip-audit --strict
-	@echo "Run 'make sbom' to produce a CycloneDX SBOM"
+	$(PYTHON) -m pip_audit --strict --requirement scripts/requirements-runtime.txt
+	@echo "This audits the locked app dependencies; CI additionally audits the built image."
 
 sbom:
-	cyclonedx-py environment -o sbom.json && echo "wrote sbom.json"
+	$(PYTHON) scripts/generate_runtime_sbom.py > sbom.json
+	@echo "wrote sbom.json for the current environment (CI generates it from the image)"
 
-# Everything CI runs, locally.
-all: lint test evals benchmark memory-ab
+runtime-lock:
+	$(PYTHON) scripts/update_runtime_lock.py
+
+# Deterministic software gates run by CI. Image and supply-chain jobs additionally
+# require Docker and pip-audit and remain available as `make docker security`.
+all: lint test evals generated-check perf

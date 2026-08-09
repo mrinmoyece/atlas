@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deliberately fake credentials planted in the vulnerable evaluation fixture"
+regexTarget = "secret"
+regexes = [
+  '''hunter2-prod-billing''',
+  '''sk-live-abc123def456ghi789jkl''',
+]

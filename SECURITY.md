@@ -2,9 +2,15 @@
 
 ## Reporting a vulnerability
 
-Report privately via GitHub Security Advisories, or email the maintainer.
-Please do not open public issues for exploitable problems. Expect
-acknowledgement within 72 hours.
+GitHub private vulnerability reporting is enabled for this repository. Use
+**Security → Report a vulnerability**. If GitHub cannot display that form,
+contact the maintainer privately through the contact details on their GitHub
+profile and ask for a secure reporting channel; do not include exploit details
+in a public issue or discussion. Expect acknowledgement within 72 hours.
+
+Include the affected version/commit, impact, prerequisites, minimal
+reproduction and any suggested mitigation. Please avoid accessing data that
+is not yours or running tests that create provider cost for other principals.
 
 ## Scope
 

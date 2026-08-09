@@ -76,6 +76,24 @@ def test_limits_are_per_principal():
     assert limiter.check("bob").allowed  # bob is unaffected
 
 
+def test_rate_limiter_identity_state_is_bounded():
+    limiter = RateLimiter(requests_per_minute=1, burst=1, max_buckets=2)
+    for principal in ("a", "b", "c", "d"):
+        limiter.check(principal)
+    assert limiter.tracked_principals == 2
+
+
+def test_rate_limiter_evicts_idle_identity_state(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr("atlas.security.ratelimit.time.monotonic", lambda: now[0])
+    limiter = RateLimiter(bucket_ttl_s=60)
+    limiter.check("old")
+    now[0] = 61.0
+    limiter.check("current")
+    assert "old" not in limiter._buckets  # noqa: SLF001
+    assert "current" in limiter._buckets  # noqa: SLF001
+
+
 # ------------------------------------------------------------------ audit
 
 
@@ -94,6 +112,48 @@ def test_audit_redacts_secrets():
     entry = log.record(actor="a", action="x", token="sk-ant-abcdef1234567890")
     assert "sk-ant-abcdef1234567890" not in entry.model_dump_json()
     assert "REDACTED" in entry.model_dump_json()
+
+
+def test_audit_retains_a_bounded_verifiable_tail():
+    log = AuditLog(max_memory_entries=3)
+    for i in range(10):
+        log.record(actor="a", action=f"action-{i}")
+    assert len(log) == 3
+    assert log.written_count == 10
+    assert [entry.seq for entry in log] == [7, 8, 9]
+    assert log.verify()
+
+
+def test_audit_restores_and_validates_a_persistent_sink(tmp_path):
+    sink = tmp_path / "audit.jsonl"
+    first = AuditLog(sink=sink, max_memory_entries=2)
+    for i in range(4):
+        first.record(actor="a", action=f"action-{i}")
+
+    restored = AuditLog(sink=sink, max_memory_entries=2)
+    assert restored.written_count == 4
+    assert [entry.seq for entry in restored] == [2, 3]
+    assert restored.verify()
+
+
+def test_audit_rejects_a_tampered_persistent_sink(tmp_path):
+    sink = tmp_path / "audit.jsonl"
+    log = AuditLog(sink=sink)
+    log.record(actor="original", action="run:create")
+    sink.write_text(sink.read_text().replace("original", "attacker"))
+
+    with pytest.raises(ValueError, match="invalid audit chain"):
+        AuditLog(sink=sink)
+
+
+def test_create_app_preserves_an_injected_empty_audit_log(authenticator, tmp_path):
+    supplied = AuditLog(sink=tmp_path / "audit.jsonl")
+    app = create_app(
+        settings=Settings(provider="scripted"),
+        authenticator=authenticator,
+        audit=supplied,
+    )
+    assert app.state.audit_log is supplied
 
 
 # -------------------------------------------------------------------- api

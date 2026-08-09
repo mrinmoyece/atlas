@@ -5,6 +5,27 @@ semantic.
 
 ## [Unreleased]
 
+This section describes the current working tree after the `0.1.0` project
+version; it is not a published GitHub release and no release tag exists yet.
+
+### Fixed (enterprise-readiness audit)
+- Procedural memory now learns under the same repository-size context used by
+  recall instead of writing every strategy result to `repo:unknown`.
+- Context truncation reserves space for its marker rather than exceeding the
+  message allocation.
+- Audit records retain a bounded, verifiable in-memory tail and can restore an
+  append-only JSONL chain after restart; injected sinks are preserved even
+  while empty. Request buckets have bounded identity state with idle eviction
+  and a shared overflow bucket.
+- Authenticated Prometheus scraping works in Compose and through the optional
+  Kubernetes ServiceMonitor; audit JSONL is mounted on persistent storage and
+  Kubernetes uses `Recreate` so revisions never write the chain concurrently.
+- Runtime dependencies are reproducibly hash-locked for Python 3.12, audited
+  from the deployed image, and represented by an image-derived CycloneDX SBOM.
+- CI actions and container bases are digest-pinned, generated artifacts are
+  drift-checked, Gitleaks scans history, Trivy gates the image, and
+  public-repository branch/security settings are enforced.
+
 ### Fixed (adversarial review round)
 - **Security**: path confinement used `str.startswith` rather than path
   ancestry, so a sibling directory with a shared name prefix escaped the
@@ -57,6 +78,48 @@ semantic.
 - Bare-suffix path matching let `"xa.py"` match ground truth `"a.py"`; now
   boundary-aware.
 - CI linted `src tests benchmarks` only, missing `evals` and `scripts`.
+
+### Fixed (blind review rounds)
+- Live providers were never bound to tools, and federated tool specs were
+  unreachable from the production graph. Both local and allowlisted remote
+  tools are now on the actual agent path rather than only demos/tests.
+- Specialist timeouts waited for timed-out workers during executor teardown;
+  timeout handling now returns at the configured bound.
+- The run cost ceiling read a stale fan-out value and spend projection was
+  lower than the per-run ceiling. Cost is enforced per model call, and a run
+  reserves the configured ceiling.
+- Repository walking followed symlinks around confinement, regex guards had
+  complexity bypasses, and reads could allocate based on attacker-controlled
+  line counts. Tool traversal, deadlines and input/output bounds were hardened.
+- Request-rate enforcement skipped invalid repositories, while streaming
+  exhaustion could raise after the response started. Invalid requests consume
+  rate capacity and stream preflight returns a normal 429.
+- Concurrent runs for one repository shared cost-ledger state. Ledgers are now
+  run-scoped.
+- Filtered semantic retrieval bypassed its relevance floor/decay, and
+  procedural context used repository-name length. Production retrieval now
+  exercises the intended controls and context uses repository characteristics.
+- Ground-truth cardinality, trap path matching, step accounting and pairwise
+  judge tie handling were corrected; regression tests exercise production
+  branches rather than guard short-circuits.
+- Security headers now cover error responses; MCP allowlists deny by default;
+  `ATLAS_DAILY_SPEND_USD` is a real documented setting.
+- Benchmark and demo copy now distinguishes authored scripted behaviour from
+  live-model evidence and does not claim unreachable memory/tool injection.
+
+### Documentation
+- Deployment is explicitly scoped to one local replica, with PostgreSQL,
+  Redis, OIDC/JWKS, tenant isolation, managed secrets, off-box WORM audit and
+  multi-region HA documented as future extension paths rather than features.
+- Added RBAC and deployment validation matrices, example single-instance
+  SLO/RTO targets, authenticated metrics setup, prompt-injection response, the
+  spend-budget invariant, audit retention/persistence boundaries and runtime
+  SBOM follow-ups.
+- Synchronized performance budgets with `perf/benchmark.py` while preserving
+  the 2026-08-09 measurements as a dated baseline.
+- The offline suite was expanded with regression coverage for the enterprise
+  readiness findings; overview documentation no longer hardcodes a count that
+  becomes stale whenever coverage improves.
 
 ## [0.1.0] - 2026-08-03
 

@@ -693,7 +693,7 @@ def run_due_diligence(
         success = not report.errors and any(f.is_grounded() for f in report.findings)
         hub.learn_from_report(
             report,
-            context_key=_context_key({"repo": repo}),
+            context_key=_context_key({"repo_root": repo_root}),
             strategy=final.get("strategy") or pattern_name or DEFAULT_PATTERN,
             success=success,
         )

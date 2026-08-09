@@ -1,0 +1,21 @@
+# Requires the Prometheus Operator monitoring.coreos.com/v1 CRDs.
+# The bearer token must authenticate to Atlas with the run:read permission.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: atlas
+  labels:
+    app: atlas
+spec:
+  selector:
+    matchLabels:
+      app: atlas
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      authorization:
+        type: Bearer
+        credentials:
+          name: atlas-secrets
+          key: prometheus-bearer-token

@@ -4,7 +4,7 @@
 
 ## Checklist
 
-- [ ] `make lint && make test && make evals` pass locally
+- [ ] `make gate` passes locally (lint + tests + standard evals + performance)
 - [ ] Tests added/updated (regression test for bug fixes)
 - [ ] Agent-behaviour change → eval coverage updated
 - [ ] Eval gate green; if `GATES` moved, justified below
@@ -12,6 +12,7 @@
 - [ ] Docs updated (ADR for decisions, FAILURE_MODES / LIMITATIONS as needed)
 - [ ] Regenerated `benchmarks/RESULTS.md` / `docs/MEMORY.md` if numbers moved
 - [ ] `CHANGELOG.md` updated
+- [ ] Deployment/security docs updated for new config, permissions or failure modes
 
 ## Gate movement justification
 

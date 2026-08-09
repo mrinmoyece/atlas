@@ -5,7 +5,7 @@
 [![CI](https://img.shields.io/badge/CI-lint%20%7C%20tests%20%7C%20evals%20%7C%20SBOM-brightgreen)]() [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]() [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
 ```
-162 tests · eval quality gate in CI · 4 reasoning patterns benchmarked · runs offline, no API key
+offline unit + regression suite · eval quality gate in CI · 4 reasoning patterns benchmarked · no model API key required
 ```
 
 ## Why this exists
@@ -73,7 +73,7 @@ sequenceDiagram
 pip install -e ".[dev,mcp]"
 
 make demo        # 5-act walkthrough: agents, traps, benchmark, memory, protocols
-make test        # 162 tests
+make test        # complete offline unit and regression suite
 make evals       # ground-truth quality gate (what CI blocks merges on)
 make benchmark   # regenerate benchmarks/RESULTS.md
 make memory-ab   # regenerate docs/MEMORY.md
@@ -83,6 +83,68 @@ make up          # docker compose, hardened container
 ```
 
 Everything above runs **offline against a deterministic scripted model**. Point it at a real model with `ATLAS_PROVIDER=anthropic` and an API key.
+
+### Run and use it locally
+
+The simplest complete experience uses only Python and the scripted provider:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+make install
+
+RAW_KEY=local-atlas-key
+KEY_HASH=$(python -c "from atlas.security import hash_key; print(hash_key('$RAW_KEY'))")
+export ATLAS_API_KEYS="local:${KEY_HASH}:admin"
+make run
+```
+
+In a second terminal:
+
+```bash
+RAW_KEY=local-atlas-key
+curl -s http://127.0.0.1:8000/healthz
+
+curl -s -X POST http://127.0.0.1:8000/v1/analyses \
+  -H "Authorization: Bearer ${RAW_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"repo":"legacy-billing","pattern":"react"}'
+
+curl -s http://127.0.0.1:8000/metrics \
+  -H "Authorization: Bearer ${RAW_KEY}"
+
+curl -s http://127.0.0.1:8000/v1/audit \
+  -H "Authorization: Bearer ${RAW_KEY}"
+```
+
+Use `Ctrl-C` to stop the API. The key above is deliberately local-only; never
+reuse it in a deployed environment. For an isolated container, generate
+untracked random credentials once, then start Compose:
+
+```bash
+make local-config
+make up
+source .env
+```
+
+The generated analyst key is available as `$ATLAS_ANALYST_KEY`; Prometheus uses
+a separate viewer-only key. The generator refuses to overwrite existing local
+credentials. Add `--profile metrics` to the Compose command to start Prometheus
+on `127.0.0.1:9090`; `make down` removes the stack and its local containers while
+preserving the audit volume (`make clean` deletes it). If a port is occupied,
+override it with `ATLAS_PORT=18000` or `PROMETHEUS_PORT=19090`. The
+[runbook](docs/RUNBOOK.md) covers configuration, role permissions, deployment
+validation, monitoring, incidents and rollback. The
+[learning path](docs/LEARNING_PATH.md) explains the implementation in reading
+order.
+
+The shipped deployment is a **single-instance reference/CV deployment**, not
+an enterprise platform. Memory, checkpointing, limits and the audit tail are
+local to one process. PostgreSQL-backed durable checkpointing and memory,
+Redis-backed distributed limits, generic OIDC/JWKS, tenant isolation, an
+off-box WORM audit sink, managed secrets and multi-region HA are explicit
+extension paths; none is implemented or implied by the current manifests.
+See [Limitations](docs/LIMITATIONS.md) and the [runbook](docs/RUNBOOK.md).
 
 ## The measured results
 

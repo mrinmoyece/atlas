@@ -16,108 +16,129 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
       - run: pip install ruff
-      - run: ruff check src tests perf benchmarks evals scripts
-      - run: ruff format --check src tests perf benchmarks evals scripts
+      - run: make lint
 
   test:
     name: Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
-      - run: pip install -e ".[dev,mcp]"
-      - run: pytest -q --tb=short
+      - run: make install
+      - run: make test
 
   # Tier 1 of the eval strategy: fast behavioural smoke on every PR.
   evals-smoke:
     name: Evals (smoke)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
-      - run: pip install -e ".[dev]"
-      - run: python -m evals.gate --tier smoke
+      - run: make install
+      - run: make evals-smoke
 
-  # Tier 2: the merge gate. Agent *quality* is a blocking check, exactly
-  # like a failing unit test - this is the job most teams are missing.
+  # Tier 2: deterministic quality and generated-result drift are merge gates.
   evals-gate:
     name: Evals (quality gate)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
-      - run: pip install -e ".[dev]"
-      - run: python -m evals.gate --tier standard
+      - run: make install
+      - run: make evals
+      - name: Check deterministic eval report
+        run: git diff --exit-code -- evals/last_run.md
       - name: Upload eval report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with: { name: eval-report, path: evals/last_run.md }
 
   benchmark:
     name: Pattern benchmark
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
-      - run: pip install -e ".[dev]"
-      - run: python -m benchmarks.run_benchmark
-      - run: python -m benchmarks.memory_ab
-      - uses: actions/upload-artifact@v4
-        with: { name: benchmark-results, path: benchmarks/RESULTS.md }
+      - run: make install
+      - run: make benchmark
+      - run: make memory-ab
+      - name: Check deterministic generated reports
+        run: git diff --exit-code -- benchmarks/RESULTS.md docs/MEMORY.md
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: benchmark-results
+          path: |
+            benchmarks/RESULTS.md
+            docs/MEMORY.md
 
   security:
     name: Security scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
-      - run: pip install pip-audit cyclonedx-bom
-      - name: Dependency vulnerability audit
-        # No `|| true`, and no placeholder ignore. A security job that
-        # cannot fail the build is a badge, not a control - and an
-        # `--ignore-vuln GHSA-placeholder` entry teaches whoever comes next
-        # that the ignore list is where you put things to make CI quiet.
-        # Real advisories get a dated, justified entry or they get fixed.
+      - run: pip install pip-audit
+      - name: Scan repository history for committed secrets
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: docker build -t atlas:ci .
+      - name: Snapshot and audit the deployed Python environment
         run: |
-          python3 -c "import tomllib; f=open('pyproject.toml','rb'); d=tomllib.load(f); print('\n'.join(d.get('project',{}).get('dependencies',[])))" > /tmp/core_deps.txt
-          pip install -r /tmp/core_deps.txt
-          pip-audit --strict
-      - name: Generate SBOM (CycloneDX)
-        run: cyclonedx-py environment -o sbom.json
-      - uses: actions/upload-artifact@v4
-        with: { name: sbom, path: sbom.json }
+          docker run --rm -i --entrypoint python atlas:ci - \
+            < scripts/list_runtime_packages.py > runtime-installed.txt
+          pip-audit --strict --requirement runtime-installed.txt
+      - name: Generate deployed-app CycloneDX SBOM
+        run: |
+          docker run --rm -i --entrypoint python atlas:ci - \
+            < scripts/generate_runtime_sbom.py > sbom.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: runtime-supply-chain
+          path: |
+            runtime-installed.txt
+            sbom.json
 
   docker:
     name: Docker build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - run: docker build -t atlas:ci .
       - name: Verify container runs as non-root
         run: |
           uid=$(docker run --rm --entrypoint id atlas:ci -u)
           echo "container uid: $uid"
           test "$uid" != "0"
+      - name: Scan runtime image for high-severity vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: atlas:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
 
   performance:
+    name: performance
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12", cache: pip }
-      - run: pip install -e ".[dev]"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
+      - run: make install
       - name: Latency budgets
-        # Budgets are derived from measured baselines with ~2x headroom, so
-        # a shared runner does not trip them but a 2x regression does. The
-        # step exits non-zero on a breach - a performance number nobody
-        # enforces drifts, and the drift is noticed by a user, not by CI.
-        run: python -m perf.benchmark --concurrency 6 --iterations 12
+        # Enforce coarse budgets, but never commit machine-dependent output.
+        run: make perf

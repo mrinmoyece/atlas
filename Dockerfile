@@ -1,17 +1,27 @@
-# Multi-stage, non-root, minimal runtime.
-FROM python:3.12-slim AS builder
+# Multi-stage, non-root, minimal runtime. The digest makes rebuilds independent
+# of mutable Docker Hub tags; Dependabot keeps it current.
+FROM python:3.12-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36 AS builder
 WORKDIR /build
 COPY pyproject.toml README.md LICENSE ./
+COPY scripts/requirements-runtime.txt ./scripts/requirements-runtime.txt
 COPY src ./src
-RUN pip install --no-cache-dir --prefix=/install ".[mcp,otel]"
+RUN pip install --no-cache-dir --prefix=/install --require-hashes \
+        -r scripts/requirements-runtime.txt \
+    && pip install --no-cache-dir --prefix=/install --no-deps .
 
-FROM python:3.12-slim
-# Hardening: dedicated unprivileged user, no shell, no package manager left
-# behind. The container runs read-only in k8s (see k8s/deployment.yaml), so
-# nothing writes to the image filesystem at runtime.
+FROM python:3.12-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36
+# Hardening: dedicated unprivileged user and a read-only image filesystem in
+# Kubernetes. The audit mount is the sole persistent writable application path.
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin atlas \
+    && mkdir -p /var/lib/atlas/audit \
+    && chown atlas:atlas /var/lib/atlas/audit \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /install /usr/local
+# The service never installs packages at runtime. Removing pip avoids shipping
+# a package manager and its independent vulnerability surface in the image.
+RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
+           /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
+           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12
 WORKDIR /app
 COPY --chown=atlas:atlas fixtures ./fixtures
 COPY --chown=atlas:atlas evals ./evals
