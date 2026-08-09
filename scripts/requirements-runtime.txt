@@ -406,9 +406,9 @@ langchain-protocol==0.0.18 \
     --hash=sha256:70b53a86fbf9cedc863555effe44da192ab02d556ddbf2cf95b8873adcf41b5a \
     --hash=sha256:ec3e11782f1ed0c9db38e5a9ed01b0e7a0d3fba406faa8aef6594b73c56a63e6
     # via langchain-core
-langgraph==1.0.10 \
-    --hash=sha256:73bd10ee14a8020f31ef07e9cd4c1a70c35cc07b9c2b9cd637509a10d9d51e29 \
-    --hash=sha256:7c298bef4f6ea292fcf9824d6088fe41a6727e2904ad6066f240c4095af12247
+langgraph==1.2.10 \
+    --hash=sha256:05a183a746ed570a06c7c1b879920163509a75df9e44e92dd2238218d677fd37 \
+    --hash=sha256:52c48bd42fa31a1de0e1c0f0ebfe342e11ca2957b8b3563f83dbd60d8e30f921
     # via atlas-dd (pyproject.toml)
 langgraph-checkpoint==4.2.0 \
     --hash=sha256:0547fd228935a0b758865de3a3d6d7a2537c308895d0f9ab092ce9151b5da942 \
