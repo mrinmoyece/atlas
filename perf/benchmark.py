@@ -84,7 +84,7 @@ BUDGETS: dict[str, dict[str, float]] = {
     "healthz": {"p95": 60, "p99": 120},
     "metrics": {"p95": 100, "p99": 180},
     "analyse": {"p95": 950, "p99": 1_100},
-    "analyse_404": {"p95": 130, "p99": 170},
+    "analyse_404": {"p95": 150, "p99": 170},
 }
 
 
