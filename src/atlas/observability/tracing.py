@@ -49,6 +49,6 @@ def span(name: str, **attributes: Any) -> Iterator[None]:
         for key, value in attributes.items():
             s.set_attribute(
                 f"atlas.{key}",
-                value if isinstance(value, str | bool | int | float) else str(value),
+                value if isinstance(value, (str, bool, int, float)) else str(value),
             )
         yield

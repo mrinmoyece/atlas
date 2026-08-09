@@ -90,9 +90,14 @@ def _truncate(message: BaseMessage, max_tokens: int) -> tuple[BaseMessage, bool]
     if estimate_tokens(content) <= max_tokens:
         return message, False
     note_tokens = estimate_tokens(_TRUNCATION_NOTE)
+    if max_tokens <= note_tokens:
+        new_content = _TRUNCATION_NOTE[: max_tokens * 4]
+        return message.model_copy(update={"content": new_content}), True
     keep_chars = max(0, max_tokens - note_tokens) * 4
-    head = content[: int(keep_chars * 0.7)]
-    tail = content[-int(keep_chars * 0.3) :]
+    head_chars = int(keep_chars * 0.7)
+    tail_chars = int(keep_chars * 0.3)
+    head = content[:head_chars]
+    tail = content[-tail_chars:] if tail_chars else ""
     new_content = f"{head}{_TRUNCATION_NOTE}{tail}"
     return message.model_copy(update={"content": new_content}), True
 

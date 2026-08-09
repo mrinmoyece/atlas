@@ -71,6 +71,14 @@ def test_truncation_marker_is_included_in_the_token_allocation():
     assert estimate_tokens(str(truncated.content)) <= 100
 
 
+def test_truncation_handles_budgets_smaller_than_the_marker():
+    original = HumanMessage(content="z" * 10_000)
+    truncated, changed = _truncate(original, 1)
+    assert changed
+    assert truncated.content != original.content
+    assert estimate_tokens(str(truncated.content)) <= 1
+
+
 def test_summary_preserves_which_tools_were_already_used():
     """The single most valuable thing to carry forward is what the agent
     already tried - otherwise it repeats the same tool call."""

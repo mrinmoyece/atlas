@@ -84,10 +84,8 @@ def test_rate_limiter_identity_state_is_bounded():
 
 
 def test_rate_limiter_evicts_idle_identity_state(monkeypatch):
-    import atlas.security.ratelimit as ratelimit
-
     now = [0.0]
-    monkeypatch.setattr(ratelimit.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr("atlas.security.ratelimit.time.monotonic", lambda: now[0])
     limiter = RateLimiter(bucket_ttl_s=60)
     limiter.check("old")
     now[0] = 61.0
