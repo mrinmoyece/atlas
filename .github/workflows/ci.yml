@@ -57,7 +57,7 @@ jobs:
       - run: python -m evals.gate --tier standard
       - name: Upload eval report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with: { name: eval-report, path: evals/last_run.md }
 
   benchmark:
@@ -70,7 +70,7 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: python -m benchmarks.run_benchmark
       - run: python -m benchmarks.memory_ab
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: benchmark-results, path: benchmarks/RESULTS.md }
 
   security:
@@ -93,7 +93,7 @@ jobs:
           pip-audit --strict
       - name: Generate SBOM (CycloneDX)
         run: cyclonedx-py environment -o sbom.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: sbom, path: sbom.json }
 
   docker:
