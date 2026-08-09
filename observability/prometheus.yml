@@ -8,7 +8,7 @@ scrape_configs:
     metrics_path: /metrics
     authorization:
       type: Bearer
-      credentials_file: /etc/prometheus/atlas-dev-prometheus-token
+      credentials_file: /etc/prometheus/atlas-prometheus-token
     static_configs:
       - targets: ["api:8000"]
 

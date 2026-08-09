@@ -1,4 +1,4 @@
-.PHONY: install test lint fmt evals evals-smoke generated-check gate perf perf-report load benchmark memory-ab demo run docker up down clean security sbom runtime-lock all
+.PHONY: install test lint fmt evals evals-smoke generated-check gate perf perf-report load benchmark memory-ab demo run docker local-config up down clean security sbom runtime-lock all
 
 PYTHON ?= python3
 
@@ -54,6 +54,9 @@ run:
 
 docker:
 	docker build -t atlas:local .
+
+local-config:
+	$(PYTHON) scripts/init_local.py
 
 up:
 	docker compose up --build

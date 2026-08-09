@@ -5,16 +5,19 @@
 ### Local container
 
 ```bash
+make local-config
 make up
 # Optional authenticated Prometheus:
 docker compose --profile metrics up --build
+source .env
 ```
 
 Compose binds to loopback, uses the offline scripted provider and persists the
-audit JSONL in a named volume. Its documented `dev-analyst-key` is local-only.
-Use `make down` to stop containers without deleting audit data; `make clean`
-also deletes the volume. Override occupied host ports with `ATLAS_PORT` and
-`PROMETHEUS_PORT`.
+audit JSONL in a named volume. `make local-config` creates an untracked `.env`
+with random analyst and viewer keys plus a gitignored viewer-only Prometheus
+token; it refuses to overwrite existing credentials. Use `make down` to stop
+containers without deleting audit data; `make clean` also deletes the volume.
+Override occupied host ports with `ATLAS_PORT` and `PROMETHEUS_PORT`.
 
 ### Kubernetes template
 

@@ -118,14 +118,23 @@ curl -s http://127.0.0.1:8000/v1/audit \
 ```
 
 Use `Ctrl-C` to stop the API. The key above is deliberately local-only; never
-reuse it in a deployed environment. For an isolated container instead, run
-`make up` and authenticate with the documented local Compose key
-`dev-analyst-key`. Add `--profile metrics` to the Compose command to start
-Prometheus on `127.0.0.1:9090`; `make down` removes the stack and its local
-containers while preserving the audit volume (`make clean` deletes it). If a
-port is occupied, override it with `ATLAS_PORT=18000` or
-`PROMETHEUS_PORT=19090`. The [runbook](docs/RUNBOOK.md) covers configuration, role
-permissions, deployment validation, monitoring, incidents and rollback. The
+reuse it in a deployed environment. For an isolated container, generate
+untracked random credentials once, then start Compose:
+
+```bash
+make local-config
+make up
+source .env
+```
+
+The generated analyst key is available as `$ATLAS_ANALYST_KEY`; Prometheus uses
+a separate viewer-only key. The generator refuses to overwrite existing local
+credentials. Add `--profile metrics` to the Compose command to start Prometheus
+on `127.0.0.1:9090`; `make down` removes the stack and its local containers while
+preserving the audit volume (`make clean` deletes it). If a port is occupied,
+override it with `ATLAS_PORT=18000` or `PROMETHEUS_PORT=19090`. The
+[runbook](docs/RUNBOOK.md) covers configuration, role permissions, deployment
+validation, monitoring, incidents and rollback. The
 [learning path](docs/LEARNING_PATH.md) explains the implementation in reading
 order.
 
