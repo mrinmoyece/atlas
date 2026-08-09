@@ -47,8 +47,12 @@ upgrade path.
   resumes if the retry lands on the pod that started it. None of that fails
   loudly, which is what makes it worth stating here. The manifest shipped
   `replicas: 2` until a review caught it.
-  Upgrade path, in dependency order: Postgres checkpointer -> shared store
-  for memory -> Redis token buckets -> append-only audit sink.
+  This is a local single-instance reference deployment, not an HA topology.
+  Upgrade path, in dependency order: PostgreSQL durable LangGraph
+  checkpointer -> PostgreSQL/pgvector durable memory -> Redis distributed
+  rate/spend limits -> off-box append-only WORM audit sink. Each requires
+  migration, failure-mode and restore testing; naming the extension point does
+  not mean it is implemented.
 
 ## Orchestration
 - **Single-process.** Parallelism is asyncio/threads within one node, and
@@ -68,7 +72,28 @@ upgrade path.
 - **API keys, not OIDC.** `Principal` is shaped for the swap.
 - **No multi-tenancy.** Memory and audit are global.
 - **Audit log is in-process** by default; a JSONL sink exists, a WORM store
-  does not.
+  does not. The in-memory tail is bounded (10,000 entries by default), so old
+  entries are evicted. JSONL adds local restart persistence, not protection
+  from host loss or an attacker who controls that host. Upgrade: send entries
+  and independently anchored chain heads to managed off-box WORM storage.
+- **Static API keys, not generic OIDC/JWKS.** The principal seam makes a future
+  verifier possible; issuer/audience validation, key rotation and claim-to-role
+  mapping are not present.
+- **No tenant isolation.** Adding a tenant id only at the API is insufficient:
+  repository resolution, memory, checkpoint keys, budgets, metrics and audit
+  all need an enforced tenant boundary and isolation tests.
+- **Environment secrets, not managed-secret integration.** Deployment can
+  inject environment values, but no Vault/cloud secret-manager integration or
+  automatic rotation is shipped.
+- **No multi-region HA.** Durable regional stores, replication/failover,
+  idempotency and reconciliation are future architecture work, not a replica
+  count change.
+
+## Supply chain
+- **Dependency SBOM, not a complete runtime inventory.** CI produces a
+  CycloneDX Python dependency SBOM. It should be extended with base-image and
+  OS package inventory, image-attached provenance/signing and scanning of the
+  released runtime artifact.
 
 ## Product
 - Fixture-scoped repository resolution: the API analyses repositories under

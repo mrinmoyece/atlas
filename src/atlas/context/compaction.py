@@ -89,7 +89,8 @@ def _truncate(message: BaseMessage, max_tokens: int) -> tuple[BaseMessage, bool]
     content = str(message.content)
     if estimate_tokens(content) <= max_tokens:
         return message, False
-    keep_chars = max_tokens * 4
+    note_tokens = estimate_tokens(_TRUNCATION_NOTE)
+    keep_chars = max(0, max_tokens - note_tokens) * 4
     head = content[: int(keep_chars * 0.7)]
     tail = content[-int(keep_chars * 0.3) :]
     new_content = f"{head}{_TRUNCATION_NOTE}{tail}"

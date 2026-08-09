@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from atlas.context.budget import TokenBudget, estimate_tokens, messages_tokens
 from atlas.context.compaction import (
+    _truncate,
     compact_messages,
     default_summariser,
     has_orphan_tool_results,
@@ -62,6 +63,12 @@ def test_oversized_single_message_is_truncated_not_dropped():
     assert result.tokens_after <= budget.usable
     # content survives in truncated form rather than vanishing
     assert any("truncated" in str(m.content) for m in result.messages)
+
+
+def test_truncation_marker_is_included_in_the_token_allocation():
+    truncated, changed = _truncate(HumanMessage(content="z" * 10_000), 100)
+    assert changed
+    assert estimate_tokens(str(truncated.content)) <= 100
 
 
 def test_summary_preserves_which_tools_were_already_used():

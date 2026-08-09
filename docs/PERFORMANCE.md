@@ -3,17 +3,17 @@
 Regenerate with `python -m perf.benchmark --write`. Enforced in CI by
 `make perf`, which exits non-zero on a breached budget.
 
-## Measured
+## Measured baseline (2026-08-09)
 
 6 concurrent clients x 12 iterations, ASGI in-process,
 scripted model. Latencies in milliseconds.
 
 | endpoint | samples | p50 | p95 | p99 | max | budget p95/p99 |
 |---|---|---|---|---|---|---|
-| `healthz` | 72 | 2.7 | 12.6 | 22.2 | 22.2 | 30 / 90 |
-| `metrics` | 72 | 11.7 | 35.4 | 74.4 | 74.4 | 90 / 170 |
+| `healthz` | 72 | 2.7 | 12.6 | 22.2 | 22.2 | 60 / 120 |
+| `metrics` | 72 | 11.7 | 35.4 | 74.4 | 74.4 | 100 / 180 |
 | `analyse` | 72 | 312.3 | 404.4 | 427.6 | 427.6 | 950 / 1100 |
-| `analyse_404` | 72 | 20.8 | 41.2 | 51.6 | 51.6 | 130 / 160 |
+| `analyse_404` | 72 | 20.8 | 41.2 | 51.6 | 51.6 | 150 / 170 |
 
 ## What these numbers are
 
@@ -21,6 +21,11 @@ The **platform**, not a model. Atlas runs a deterministic scripted provider,
 so there is no network call to an LLM in any of these paths. What is being
 measured is routing, auth, validation, the four-way graph fan-out, report
 serialisation and the streaming generator.
+
+The latency columns are the dated measured baseline; the budget columns are
+the current executable values in `perf/benchmark.py`. They intentionally need
+not equal the measurements. If code changes a budget, update the executable
+value and this table together and explain the headroom in the PR.
 
 That is deliberate. A benchmark dominated by provider latency varies by an
 order of magnitude between runs and can gate nothing. This one is stable

@@ -11,3 +11,5 @@ tests
 benchmarks
 sbom.json
 .env
+.env.*
+k8s/secrets.local.yaml

@@ -17,6 +17,18 @@ an information problem; a stolen run key is a financial one.
 - Hash-chained audit log so deletion or edit is detectable.
 - `/metrics` is authenticated because it exposes spend and volume.
 
+The resulting matrix is:
+
+| Role | Permissions |
+|---|---|
+| `viewer` | `run:read` |
+| `analyst` | `run:read`, `run:create` |
+| `admin` | `run:read`, `run:create`, `admin:manage` |
+
+`run:read` includes authenticated metrics, `run:create` covers both normal and
+streaming analyses, and `admin:manage` protects audit access. The roles are
+cumulative; unknown roles grant nothing.
+
 ## Reasoning
 Checking spend after a run tells you the money is already gone. Fixed
 windows allow a 2x burst across the boundary, which for a budget means

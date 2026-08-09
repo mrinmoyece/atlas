@@ -3,6 +3,8 @@ __pycache__/
 *.egg-info/
 .venv/
 .env
+.env.*
+k8s/secrets.local.yaml
 .pytest_cache/
 .ruff_cache/
 dist/

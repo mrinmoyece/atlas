@@ -37,6 +37,17 @@ control below:
 | RBAC | `viewer` / `analyst` / `admin`; **run creation is privileged** (ADR-0007). |
 | Enumeration resistance | Generic failure message; failure reason never disclosed. |
 
+Role grants are cumulative and fixed in code:
+
+| Role | `run:read` | `run:create` | `admin:manage` | Typical use |
+|---|---:|---:|---:|---|
+| `viewer` | yes | no | no | Read memory status and authenticated metrics |
+| `analyst` | yes | yes | no | Submit and stream analyses, which may spend money |
+| `admin` | yes | yes | yes | Read audit data and perform administrative operations |
+
+There is no anonymous fallback. `/healthz` is the only public operational
+endpoint; `/metrics` requires at least `viewer`.
+
 ### Abuse and cost
 | Control | Implementation |
 |---|---|
@@ -44,6 +55,11 @@ control below:
 | Spend budget | Daily per-principal cap, checked **before** the run with a pessimistic projection. |
 | Step budget | Per-specialist max steps enforced by the runtime, halting tool loops. |
 | Context budget | Compaction bounds tokens per call. |
+
+Configuration invariant: `ATLAS_DAILY_SPEND_USD` must be greater than or equal
+to `ATLAS_MAX_COST_USD`. Atlas reserves the full per-run ceiling before work
+starts, then reconciles actual cost. A daily cap below one possible reservation
+would reject every run, not create a useful smaller cap.
 
 ### Untrusted content
 | Vector | Control |
@@ -75,19 +91,30 @@ control below:
 ### Auditability
 | Control | Implementation |
 |---|---|
-| Audit log | Every privileged action: actor, action, resource, outcome, cost. |
+| Audit log | Every privileged action: actor, action, resource, outcome, cost. The in-memory tail is bounded. |
 | Tamper evidence | Hash-chained entries; `verify()` detects edits and deletions. |
 | Secret hygiene | Redaction at the logging boundary and per-value in audit details, so no call site can forget. |
 | Metrics access | `/metrics` requires authentication — it exposes spend and volume. |
+
+The default audit store is a bounded in-memory tail (10,000 entries by
+default). `ATLAS_AUDIT_SINK` optionally appends JSONL and restores/verifies it
+at startup, but a file on the same host is neither highly available nor
+tamper-proof. A production extension should ship records and chain-head
+anchors off-box to access-controlled WORM storage.
 
 ### Supply chain
 | Control | Implementation |
 |---|---|
 | Dependency audit | `pip-audit` in CI. |
-| SBOM | CycloneDX generated and uploaded per build. |
+| SBOM | CycloneDX Python dependency SBOM generated and uploaded per build. |
 | Static analysis | CodeQL (`security-and-quality`) on PRs and weekly. |
 | Updates | Dependabot for pip, GitHub Actions and Docker. |
 | Container check | CI asserts the image does not run as uid 0. |
+
+The current SBOM is dependency-focused. Useful next steps are to attach it to
+the released image with provenance, inventory the base image and system
+packages, and scan the actual runtime image rather than treating a Python
+lock/dependency inventory as a complete runtime SBOM.
 
 ## Known gaps (deliberate, not overlooked)
 
@@ -104,6 +131,10 @@ control below:
    the blast radius (tool allowlists, budgets, validation); they cannot stop
    an injected instruction from influencing *content*. Report consumers
    should treat findings as leads with evidence, not verdicts.
+6. **Single-instance deployment.** Checkpoints, memory, limits and the audit
+   tail are local. PostgreSQL, Redis, OIDC/JWKS, tenant isolation, managed
+   secrets, off-box WORM audit and multi-region HA are roadmap extension
+   points, not features of this repository.
 
 ## Reporting
 

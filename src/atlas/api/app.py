@@ -127,8 +127,17 @@ def create_app(
         requests_per_minute=cfg.requests_per_minute,
         burst=cfg.rate_limit_burst,
         daily_spend_usd=cfg.daily_spend_usd,
+        max_buckets=cfg.rate_limit_max_buckets,
+        bucket_ttl_s=cfg.rate_limit_bucket_ttl_s,
     )
-    audit_log = audit or AuditLog()
+    audit_log = (
+        audit
+        if audit is not None
+        else AuditLog(
+            sink=cfg.audit_sink,
+            max_memory_entries=cfg.audit_memory_max_entries,
+        )
+    )
     _validate_budget_invariant(cfg, limiter)
     hub = memory or MemoryHub(
         enabled=cfg.memory_enabled,
@@ -443,7 +452,7 @@ def create_app(
                         report = totals["report"]
                         hub.learn_from_report(
                             report,
-                            context_key=graph_context_key({"repo": body.repo}),
+                            context_key=graph_context_key({"repo_root": str(root)}),
                             strategy=body.pattern or "react",
                             success=not report.errors
                             and any(f.is_grounded() for f in report.findings),
@@ -505,6 +514,7 @@ def create_app(
             "entries": [e.model_dump() for e in audit_log.tail(50)],
             "chain_valid": audit_log.verify(),
             "count": len(audit_log),
+            "written_count": audit_log.written_count,
         }
 
     @app.get("/v1/memory")

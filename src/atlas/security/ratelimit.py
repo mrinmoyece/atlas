@@ -73,11 +73,22 @@ class RateLimiter:
         requests_per_minute: float = 60,
         burst: float | None = None,
         daily_spend_usd: float = 25.0,
+        max_buckets: int = 10_000,
+        bucket_ttl_s: float = 3_600.0,
     ) -> None:
+        if max_buckets < 1:
+            raise ValueError("max_buckets must be positive")
+        if bucket_ttl_s <= 0:
+            raise ValueError("bucket_ttl_s must be positive")
         self._rpm = requests_per_minute
         self._burst = burst if burst is not None else max(5.0, requests_per_minute / 4)
         self._daily_spend = daily_spend_usd
+        self._max_buckets = max_buckets
+        self._bucket_ttl_s = bucket_ttl_s
         self._buckets: dict[str, TokenBucket] = {}
+        self._bucket_last_seen: dict[str, float] = {}
+        self._overflow_bucket = TokenBucket(self._burst, self._rpm / 60.0)
+        self._last_bucket_cleanup = time.monotonic()
         self._spend: dict[str, float] = {}
         self._reserved: dict[str, float] = {}
         # Per-principal windows: one global window would reset everyone's
@@ -87,12 +98,38 @@ class RateLimiter:
         self._lock = threading.Lock()
 
     def check(self, principal: str) -> RateLimitResult:
+        now = time.monotonic()
         with self._lock:
+            self._cleanup_buckets(now)
             bucket = self._buckets.get(principal)
             if bucket is None:
-                bucket = TokenBucket(self._burst, self._rpm / 60.0)
-                self._buckets[principal] = bucket
+                if len(self._buckets) >= self._max_buckets:
+                    bucket = self._overflow_bucket
+                else:
+                    bucket = TokenBucket(self._burst, self._rpm / 60.0)
+                    self._buckets[principal] = bucket
+            if bucket is not self._overflow_bucket:
+                self._bucket_last_seen[principal] = now
         return bucket.consume()
+
+    @property
+    def tracked_principals(self) -> int:
+        with self._lock:
+            return len(self._buckets)
+
+    def _cleanup_buckets(self, now: float) -> None:
+        interval = min(60.0, self._bucket_ttl_s)
+        if now - self._last_bucket_cleanup < interval:
+            return
+        expired = [
+            principal
+            for principal, last_seen in self._bucket_last_seen.items()
+            if now - last_seen >= self._bucket_ttl_s
+        ]
+        for principal in expired:
+            self._buckets.pop(principal, None)
+            self._bucket_last_seen.pop(principal, None)
+        self._last_bucket_cleanup = now
 
     @property
     def daily_spend_usd(self) -> float:

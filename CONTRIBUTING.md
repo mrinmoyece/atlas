@@ -4,7 +4,7 @@
 
 ```bash
 make install
-make gate      # lint + tests + eval quality gate — must pass before any PR
+make gate      # lint + tests + evals + generated-report drift + performance
 ```
 
 ## Ground rules
@@ -35,3 +35,10 @@ make benchmark   # benchmarks/RESULTS.md
 make memory-ab   # docs/MEMORY.md
 make evals       # evals/last_run.md
 ```
+
+`make gate` is the contributor-facing aggregate for lint, tests, standard
+evals, deterministic benchmark/memory report drift and performance budgets;
+`make lint`, `make test` and `make evals` remain useful separately when
+isolating a failure. CI may run the same concepts as separate jobs and adds
+packaging and security checks. Do not describe `make evals` as
+the whole gate or assume a passing unit suite proves eval quality.

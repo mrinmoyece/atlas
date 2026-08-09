@@ -21,16 +21,17 @@ spec:
   # is written up in LIMITATIONS.md. Shipping `replicas: 2` in the meantime
   # would be claiming a property the code does not have.
   replicas: 1
+  # Never overlap revisions: rate/spend state is process-local and the JSONL
+  # audit chain has one writer. RollingUpdate would briefly violate both.
+  strategy:
+    type: Recreate
   selector:
     matchLabels: { app: atlas }
   template:
     metadata:
       labels: { app: atlas }
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/path: /metrics
-        prometheus.io/port: "8000"
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -53,34 +54,56 @@ spec:
             - name: ATLAS_API_KEYS
               valueFrom:
                 secretKeyRef: { name: atlas-secrets, key: api-keys }
+            - name: ATLAS_AUDIT_SINK
+              value: /var/lib/atlas/audit/audit.jsonl
           resources:
             requests: { cpu: 200m, memory: 512Mi }
             limits: { cpu: "2", memory: 1Gi }
           volumeMounts:
             - { name: tmp, mountPath: /tmp }
+            - { name: audit, mountPath: /var/lib/atlas/audit }
+          startupProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            failureThreshold: 30
+            periodSeconds: 2
           readinessProbe:
             httpGet: { path: /healthz, port: 8000 }
-            initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet: { path: /healthz, port: 8000 }
-            initialDelaySeconds: 15
             periodSeconds: 20
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: audit
+          persistentVolumeClaim:
+            claimName: atlas-audit
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: atlas-audit
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: atlas
+  labels: { app: atlas }
 spec:
   selector: { app: atlas }
-  ports: [{ port: 80, targetPort: 8000 }]
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
 ---
-# Default-deny egress except DNS and the model provider. An agent platform
-# makes outbound calls chosen partly by a model, so egress is a control
-# surface, not an afterthought.
+# Default-deny egress except cluster DNS and public HTTPS. Public HTTPS is
+# intentionally broad because providers and OTLP endpoints vary; private
+# networks and the cloud metadata endpoint remain unreachable.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -94,17 +117,27 @@ spec:
         - namespaceSelector: {}
           podSelector:
             matchLabels: { k8s-app: kube-dns }
-      ports: [{ protocol: UDP, port: 53 }]
-    - to: [{ ipBlock: { cidr: 0.0.0.0/0, except: ["10.0.0.0/8", "169.254.169.254/32"] } }]
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.169.254/32
       ports: [{ protocol: TCP, port: 443 }]
 ---
-# Note: 169.254.169.254 is excluded above - that is the cloud metadata
-# endpoint, the classic SSRF target for a tool that fetches URLs.
+# A singleton cannot guarantee availability during voluntary disruption.
+# Allowing one unavailable pod avoids making node drains and upgrades
+# impossible while preserving the honest single-replica configuration.
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: atlas
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
   selector:
     matchLabels: { app: atlas }
