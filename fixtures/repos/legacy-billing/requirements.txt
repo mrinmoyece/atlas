@@ -1,4 +1,4 @@
 flask
 requests
-pyyaml==3.13
+pyyaml==5.4
 django==1.11.29
