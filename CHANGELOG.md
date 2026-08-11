@@ -24,7 +24,9 @@ version; it is not a published GitHub release and no release tag exists yet.
   from the deployed image, and represented by an image-derived CycloneDX SBOM.
 - CI actions and container bases are digest-pinned, generated artifacts are
   drift-checked, Gitleaks scans history, Trivy gates the image, and
-  public-repository branch/security settings are enforced.
+  public-repository branch/security settings are enforced. The image scan uses
+  a digest-pinned Trivy container so it works under the repository's action
+  allowlist without invoking an unapproved transitive action.
 
 ### Fixed (adversarial review round)
 - **Security**: path confinement used `str.startswith` rather than path

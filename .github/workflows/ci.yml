@@ -122,14 +122,12 @@ jobs:
           echo "container uid: $uid"
           test "$uid" != "0"
       - name: Scan runtime image for high-severity vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: atlas:ci
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity: CRITICAL,HIGH
+        run: |
+          docker run --rm \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e \
+            image --format table --exit-code 1 --ignore-unfixed \
+            --pkg-types os,library --severity CRITICAL,HIGH atlas:ci
 
   performance:
     name: performance
