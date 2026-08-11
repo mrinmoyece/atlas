@@ -398,7 +398,13 @@ def create_app(
             queue: asyncio.Queue[str | None] = asyncio.Queue()
             loop = asyncio.get_running_loop()
             started = time.monotonic()
-            totals: dict[str, Any] = {"findings": 0, "cost_usd": 0.0, "report": None}
+            totals: dict[str, Any] = {
+                "findings": 0,
+                "tokens_used": 0,
+                "model_calls": 0,
+                "cost_usd": 0.0,
+                "report": None,
+            }
             collected: list[Any] = []
             stream_errors: dict[str, str] = {}
 
@@ -427,7 +433,9 @@ def create_app(
                                     repo=body.repo,
                                     findings=tuple(collected),
                                     verdict=delta.get("verdict", ""),
+                                    tokens_used=int(totals["tokens_used"]),
                                     cost_usd=round(float(totals["cost_usd"]), 8),
+                                    model_calls=int(totals["model_calls"]),
                                     errors=dict(stream_errors),
                                 )
                                 emit(_sse("verdict", {"verdict": delta.get("verdict", "")}))
@@ -435,6 +443,8 @@ def create_app(
                             findings = delta.get("findings") or []
                             collected.extend(findings)
                             totals["findings"] += len(findings)
+                            totals["tokens_used"] += int(delta.get("tokens_used") or 0)
+                            totals["model_calls"] += int(delta.get("model_calls") or 0)
                             totals["cost_usd"] += float(delta.get("cost_usd") or 0.0)
                             emit(
                                 _sse(

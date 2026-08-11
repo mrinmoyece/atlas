@@ -130,6 +130,8 @@ version; it is not a published GitHub release and no release tag exists yet.
 - Specialist failures now emit error metrics, streaming runs contribute run
   metrics, partial completions are explicit in the audit log, and the demo uses
   the graph's real repository-size memory context.
+- Specialist failures retain usage incurred before the exception, and streaming
+  reports carry token/model-call totals into procedural-memory statistics.
 
 ## [0.1.0] - 2026-08-03
 

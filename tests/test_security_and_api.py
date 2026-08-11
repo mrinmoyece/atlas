@@ -291,6 +291,10 @@ async def test_streaming_emits_specialist_then_complete(client_app, auth_headers
             categories = {p["category"] for p in payloads if "category" in p}
             assert categories == {"security", "architecture", "dependency", "delivery"}
             assert "atlas_runs_total 1" in metrics.render()
+            learned = client_app.state.memory.procedural.table("repo:standard")
+            assert len(learned) == 1
+            assert learned[0].total_steps > 0
+            assert learned[0].total_cost_usd > 0
 
 
 async def test_audit_records_every_privileged_action(client_app, auth_headers):

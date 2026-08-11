@@ -210,6 +210,44 @@ def test_specialist_failure_does_not_fail_the_run(legacy_root):
     )
 
 
+def test_specialist_exception_after_model_call_preserves_usage(monkeypatch, legacy_root):
+    from langchain_core.messages import HumanMessage
+
+    from atlas.llm.scripted import DEFAULT_ROUTE
+    from atlas.patterns.base import _Meter, call_model
+
+    class FailAfterModelCall:
+        def run(self, ctx):
+            meter = _Meter()
+            call_model(ctx.model, [HumanMessage(content="trigger")], ctx, meter)
+            raise RuntimeError("failed after incurring usage")
+
+    recorded: list[dict] = []
+    monkeypatch.setattr("atlas.graph.build.get_pattern", lambda _: FailAfterModelCall())
+    monkeypatch.setattr(
+        "atlas.graph.build.record_specialist", lambda **kwargs: recorded.append(kwargs)
+    )
+    model = ScriptedChatModel(
+        routes={DEFAULT_ROUTE: [ScriptedTurn(content='{"summary": "measured"}')]}
+    )
+
+    report = run_due_diligence(
+        repo="legacy-billing",
+        repo_root=str(legacy_root),
+        model=model,
+        pattern_name="react",
+        categories=(Category.SECURITY,),
+    )
+
+    assert report.errors["security"].endswith("failed after incurring usage")
+    assert report.model_calls == 1
+    assert report.tokens_used > 0
+    assert report.cost_usd > 0
+    assert recorded[0]["tokens"] == report.tokens_used
+    assert recorded[0]["cost_usd"] == report.cost_usd
+    assert recorded[0]["ok"] is False
+
+
 def test_memory_influences_a_later_run(legacy_root):
     hub = MemoryHub(enabled=True)
     first = run_due_diligence(

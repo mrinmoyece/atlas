@@ -304,6 +304,21 @@ def build_graph(
             # in-flight subtotals, under-counting its ceiling by up to 4x.
             run_key = state.get("run_id") or state.get("repo", "")
             strategy_name = state.get("strategy") or pattern_name or DEFAULT_PATTERN
+            usage: dict[str, int | float] = {
+                "model_calls": 0,
+                "tokens_used": 0,
+                "cost_usd": 0.0,
+            }
+            usage_lock = threading.Lock()
+
+            def observe_usage(model_calls: int, tokens_used: int, cost_usd: float) -> None:
+                with usage_lock:
+                    usage.update(
+                        model_calls=model_calls,
+                        tokens_used=tokens_used,
+                        cost_usd=cost_usd,
+                    )
+
             card = card_for(category)
             with span("graph.specialist", category=category.value, agent=card.name):
                 try:
@@ -332,6 +347,7 @@ def build_graph(
                         token_budget=TokenBudget(limit=cfg.context_token_budget),
                         keep_recent=cfg.compaction_keep_recent,
                         cost_guard=_make_cost_guard(run_key, category, cfg.max_cost_usd),
+                        usage_observer=observe_usage,
                     )
                     # Wall-clock timeout for the specialist.
                     #
@@ -380,19 +396,35 @@ def build_graph(
                     outcome = box["result"]
                 except Exception as e:  # noqa: BLE001 - isolate specialist failure
                     duration_ms = int((time.monotonic() - started) * 1000)
+                    with usage_lock:
+                        model_calls = int(usage["model_calls"])
+                        tokens_used = int(usage["tokens_used"])
+                        cost_usd = round(float(usage["cost_usd"]), 8)
+                    _ledger.settle(run_key, category.value, cost_usd)
                     record_specialist(
                         category=category.value,
                         pattern=strategy_name,
                         findings=0,
-                        tokens=0,
-                        cost_usd=0.0,
+                        tokens=tokens_used,
+                        cost_usd=cost_usd,
                         duration_ms=duration_ms,
                         ok=False,
                     )
                     log.exception("specialist_failed", extra={"ctx": {"category": category.value}})
                     return {
                         "errors": {category.value: f"{type(e).__name__}: {e}"},
-                        "results": [SpecialistResult(category=category, error=str(e)[:500])],
+                        "results": [
+                            SpecialistResult(
+                                category=category,
+                                tokens_used=tokens_used,
+                                cost_usd=cost_usd,
+                                model_calls=model_calls,
+                                error=str(e)[:500],
+                            )
+                        ],
+                        "tokens_used": tokens_used,
+                        "cost_usd": cost_usd,
+                        "model_calls": model_calls,
                     }
 
             duration_ms = int((time.monotonic() - started) * 1000)
