@@ -10,7 +10,6 @@ k8s/secrets.local.yaml
 .ruff_cache/
 dist/
 sbom.json
-evals/last_run.md
 *.py[cod]
 .eggs/
 build/

@@ -4,8 +4,12 @@
 
 ```bash
 make install
+make demo      # offline end-to-end showcase
 make gate      # lint + tests + evals + generated-report drift + performance
 ```
+
+Start with the [documentation map](docs/README.md) and
+[AI system design](docs/ai-system-design.md) before structural changes.
 
 ## Ground rules
 

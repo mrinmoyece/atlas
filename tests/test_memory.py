@@ -201,3 +201,9 @@ def test_recall_renders_auditable_block():
     assert recall.used
     assert "<prior_experience>" in recall.block
     assert recall.strategy_hint == "react"
+
+
+def test_demo_uses_the_graphs_repository_context():
+    from scripts.demo import _demo_context_key
+
+    assert _demo_context_key() == "repo:standard"

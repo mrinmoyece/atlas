@@ -120,6 +120,14 @@ version; it is not a published GitHub release and no release tag exists yet.
 - The offline suite was expanded with regression coverage for the enterprise
   readiness findings; overview documentation no longer hardcodes a count that
   becomes stale whenever coverage improves.
+- Added a canonical documentation map and an evidence-linked AI system design
+  case study; tracked the generated standard eval snapshot so CI drift checks
+  now operate on a committed artifact.
+- Corrected live-provider claims: current eval/benchmark runners force the
+  scripted model, and the Anthropic adapter does not yet price usage metadata.
+- Specialist failures now emit error metrics, streaming runs contribute run
+  metrics, partial completions are explicit in the audit log, and the demo uses
+  the graph's real repository-size memory context.
 
 ## [0.1.0] - 2026-08-03
 
@@ -132,7 +140,8 @@ Initial release.
   one measured contract, plus a benchmark harness and results
 - Evaluation stack: fixture repos with planted ground truth and traps,
   precision/recall/F1 with micro-averaging, deterministic groundedness
-  checks, judge with position-bias controls, three CI tiers with a merge gate
+  checks, judge with position-bias controls, three eval tiers with smoke and
+  standard wired into CI
 - Four-tier memory (working, episodic, semantic, procedural) with recency
   decay, relevance floor, Laplace-smoothed strategy selection, and an A/B
   harness that measures whether memory helps

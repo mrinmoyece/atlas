@@ -303,6 +303,7 @@ def build_graph(
             # run A's spend), and either run's `reset` wiped the other's four
             # in-flight subtotals, under-counting its ceiling by up to 4x.
             run_key = state.get("run_id") or state.get("repo", "")
+            strategy_name = state.get("strategy") or pattern_name or DEFAULT_PATTERN
             card = card_for(category)
             with span("graph.specialist", category=category.value, agent=card.name):
                 try:
@@ -355,7 +356,6 @@ def build_graph(
                     # documented in LIMITATIONS.md. Killing it properly means
                     # running tools in a subprocess, the same boundary an
                     # exec-capable tool would need anyway.
-                    strategy_name = state.get("strategy") or pattern_name or DEFAULT_PATTERN
                     box: dict[str, Any] = {}
 
                     def _run_pattern() -> None:
@@ -379,6 +379,16 @@ def build_graph(
                         raise box["error"]
                     outcome = box["result"]
                 except Exception as e:  # noqa: BLE001 - isolate specialist failure
+                    duration_ms = int((time.monotonic() - started) * 1000)
+                    record_specialist(
+                        category=category.value,
+                        pattern=strategy_name,
+                        findings=0,
+                        tokens=0,
+                        cost_usd=0.0,
+                        duration_ms=duration_ms,
+                        ok=False,
+                    )
                     log.exception("specialist_failed", extra={"ctx": {"category": category.value}})
                     return {
                         "errors": {category.value: f"{type(e).__name__}: {e}"},

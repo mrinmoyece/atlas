@@ -5,8 +5,8 @@
 Three properties that ordinary services do not have, and that drive every
 control below:
 
-1. **Every request spends money.** A compromised credential is a financial
-   incident, not only a data one.
+1. **A live-provider request can spend money.** A compromised credential can
+   become a financial incident, not only a data one.
 2. **The system reads attacker-authored content.** Repository files, tool
    outputs and remote tool descriptions are all untrusted input that lands
    in a model's context.
@@ -48,11 +48,22 @@ Role grants are cumulative and fixed in code:
 There is no anonymous fallback. `/healthz` is the only public operational
 endpoint; `/metrics` requires at least `viewer`.
 
+Endpoint enforcement is explicit:
+
+| Endpoint | Permission | Public? |
+|---|---|---:|
+| `GET /healthz` | none | yes |
+| `GET /metrics` | `run:read` | no |
+| `GET /v1/memory` | `run:read` | no |
+| `POST /v1/analyses` | `run:create` | no |
+| `POST /v1/analyses/stream` | `run:create` | no |
+| `GET /v1/audit` | `admin:manage` | no |
+
 ### Abuse and cost
 | Control | Implementation |
 |---|---|
 | Request rate | Per-principal token bucket (no fixed-window 2x burst). |
-| Spend budget | Daily per-principal cap, checked **before** the run with a pessimistic projection. |
+| Spend admission | Daily per-principal reservation, checked **before** the run with the configured per-run maximum. |
 | Step budget | Per-specialist max steps enforced by the runtime, halting tool loops. |
 | Context budget | Compaction bounds tokens per call. |
 
@@ -60,6 +71,12 @@ Configuration invariant: `ATLAS_DAILY_SPEND_USD` must be greater than or equal
 to `ATLAS_MAX_COST_USD`. Atlas reserves the full per-run ceiling before work
 starts, then reconciles actual cost. A daily cap below one possible reservation
 would reject every run, not create a useful smaller cap.
+
+The current scripted provider supplies priced `cost_usd` metadata and exercises
+reconciliation and braking. The current Anthropic adapter does not price its
+usage metadata, so sequential live-provider requests settle at zero; the daily
+ledger and run-cost brake are not claimed as monetary controls for that path
+([limitations](LIMITATIONS.md#security)).
 
 ### Untrusted content
 | Vector | Control |
@@ -91,7 +108,7 @@ would reject every run, not create a useful smaller cap.
 ### Auditability
 | Control | Implementation |
 |---|---|
-| Audit log | Every privileged action: actor, action, resource, outcome, cost. The in-memory tail is bounded. |
+| Audit log | Every privileged action: actor, action, resource, outcome, cost. Partial runs name failed specialist categories. The in-memory tail is bounded. |
 | Tamper evidence | Hash-chained entries; `verify()` detects edits and deletions. |
 | Secret hygiene | Redaction at the logging boundary and per-value in audit details, so no call site can forget. |
 | Metrics access | `/metrics` requires authentication — it exposes spend and volume. |
@@ -116,25 +133,15 @@ the released image with provenance, inventory the base image and system
 packages, and scan the actual runtime image rather than treating a Python
 lock/dependency inventory as a complete runtime SBOM.
 
-## Known gaps (deliberate, not overlooked)
+## Residual risk and roadmap
 
-1. **No external code-execution sandbox.** In-process guards protect
-   well-typed tools; they do not contain arbitrary code. A `run_python` tool
-   would require a container or microVM boundary.
-2. **In-process rate limiting.** Behind N replicas the effective limit is
-   N× the configured one. Redis is the fix.
-3. **API keys, not OIDC.** `Principal` is shaped for a JWT swap; that swap
-   has not been made.
-4. **No tenancy isolation.** Memory and audit are global. Multi-tenant
-   deployment needs a tenant dimension throughout.
-5. **Prompt injection is contained, not solved.** Structural controls bound
-   the blast radius (tool allowlists, budgets, validation); they cannot stop
-   an injected instruction from influencing *content*. Report consumers
-   should treat findings as leads with evidence, not verdicts.
-6. **Single-instance deployment.** Checkpoints, memory, limits and the audit
-   tail are local. PostgreSQL, Redis, OIDC/JWKS, tenant isolation, managed
-   secrets, off-box WORM audit and multi-region HA are roadmap extension
-   points, not features of this repository.
+[LIMITATIONS.md](LIMITATIONS.md#security) is the canonical gap inventory and
+upgrade ordering. The security-critical boundaries are: no external
+code-execution sandbox, process-local limits, static API keys, no tenant
+isolation, no priced live-provider usage, and no off-box WORM audit anchor.
+Prompt injection is contained by structural controls, not solved; report
+consumers must treat findings as evidence-backed leads rather than autonomous
+decisions.
 
 ## Reporting
 

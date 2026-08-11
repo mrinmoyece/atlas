@@ -184,6 +184,7 @@ def test_clean_repo_yields_proceed_verdict(modern_root):
 
 def test_specialist_failure_does_not_fail_the_run(legacy_root):
     """A report missing one section is useful; a 500 is not."""
+    from atlas.observability import metrics
 
     class Exploding(ScriptedChatModel):
         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
@@ -193,6 +194,7 @@ def test_specialist_failure_does_not_fail_the_run(legacy_root):
 
     base = model_for("legacy-billing")
     broken = Exploding(routes=base.routes)
+    metrics.reset()
     report = run_due_diligence(
         repo="legacy-billing",
         repo_root=str(legacy_root),
@@ -202,6 +204,10 @@ def test_specialist_failure_does_not_fail_the_run(legacy_root):
     assert "security" in report.errors
     assert report.findings  # other specialists still contributed
     assert "specialist(s) failed" in report.verdict
+    assert (
+        'atlas_specialist_runs_total{category="security",outcome="error",pattern="react"} 1'
+        in metrics.render()
+    )
 
 
 def test_memory_influences_a_later_run(legacy_root):

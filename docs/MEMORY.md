@@ -9,9 +9,9 @@ their cost, measured by `benchmarks/memory_ab.py`. Regenerate with
 | tier | what it holds | lifetime | retrieval |
 |---|---|---|---|
 | working | live message window for this step | one step | n/a (compaction governs it) |
-| episodic | one record per completed run: repo, counts, cost | forever | by repo or recency |
-| semantic | lessons from findings | decayed | filter, then vectors+decay+floor |
-| procedural | best strategy per repo kind | forever | Laplace-smoothed rate |
+| episodic | one record per completed run: repo, counts, cost | process lifetime | by repo or recency |
+| semantic | lessons from findings | process lifetime; capacity 500 | filter, then vectors+decay+floor |
+| procedural | best strategy per repo kind | process lifetime | Laplace-smoothed rate |
 
 ## Experiment 1 - cross-repository transfer (leak-free)
 
@@ -40,7 +40,7 @@ generalisation.
 
 **delta: +0.048 quality -> memory helps**
 
-Per-repository quality:
+Experiment 1 per-repository quality:
 
 | repo | cold | warm |
 |---|---|---|
@@ -78,7 +78,8 @@ deletion loses information that may matter again.
 **Procedural memory is Laplace-smoothed.** A strategy that succeeded once
 (1/1 = 100%) must not permanently outrank one that succeeded 47 times out of
 50. Naive success-rate tracking locks the agent onto a lucky fluke, which
-makes procedural memory *worse* than having none.
+makes procedural memory *worse* than having none. See
+[`StrategyStats.score`](../src/atlas/memory/tiers.py).
 
 **Two leakage guards.** In the warm arm each repository is scored and only
 then memorised, so it can only benefit from repositories that preceded it;
@@ -144,6 +145,7 @@ run misses. So the delta demonstrates that the harness detects and
 quantifies a memory effect - it is **not** evidence that memory improves a
 live model, because a deterministic model cannot be influenced by content.
 
-Measuring the real effect requires `ATLAS_PROVIDER=anthropic` and N
-repetitions. That run has not been done. Any number in this document that
-is quoted as evidence about model behaviour is being misquoted.
+Measuring the real effect requires a separate live-provider runner that
+injects a provider model instead of `model_for(repo)`, plus N repetitions.
+That runner and experiment have not been implemented. Any number in this
+document quoted as evidence about live-model behaviour is being misquoted.

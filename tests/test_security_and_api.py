@@ -9,6 +9,7 @@ import pytest
 
 from atlas.api.app import create_app
 from atlas.config import Settings
+from atlas.domain.types import DueDiligenceReport
 from atlas.security import ApiKeyAuthenticator, AuditLog, AuthError, Role, hash_key
 from atlas.security.ratelimit import RateLimiter, TokenBucket
 
@@ -255,6 +256,9 @@ async def test_full_analysis_returns_grounded_report(client_app, auth_headers):
 
 
 async def test_streaming_emits_specialist_then_complete(client_app, auth_headers):
+    from atlas.observability import metrics
+
+    metrics.reset()
     async with await _client(client_app) as c:
         async with client_app.router.lifespan_context(client_app):
             resp = await c.post(
@@ -286,6 +290,7 @@ async def test_streaming_emits_specialist_then_complete(client_app, auth_headers
             ]
             categories = {p["category"] for p in payloads if "category" in p}
             assert categories == {"security", "architecture", "dependency", "delivery"}
+            assert "atlas_runs_total 1" in metrics.render()
 
 
 async def test_audit_records_every_privileged_action(client_app, auth_headers):
@@ -300,6 +305,27 @@ async def test_audit_records_every_privileged_action(client_app, auth_headers):
             actions = {e["action"] for e in body["entries"]}
             assert {"run:create", "run:complete"} <= actions
             assert body["chain_valid"] is True
+
+
+async def test_partial_run_is_recorded_as_partial(monkeypatch, authenticator, auth_headers):
+    def partial_run(**kwargs):
+        return DueDiligenceReport(repo=kwargs["repo"], errors={"security": "provider failed"})
+
+    monkeypatch.setattr("atlas.api.app.run_due_diligence", partial_run)
+    app = create_app(settings=Settings(provider="scripted"), authenticator=authenticator)
+
+    async with await _client(app) as c:
+        async with app.router.lifespan_context(app):
+            response = await c.post(
+                "/v1/analyses",
+                json={"repo": "legacy-billing"},
+                headers=auth_headers["analyst"],
+            )
+
+    assert response.status_code == 200
+    completion = next(e for e in app.state.audit_log if e.action == "run:complete")
+    assert completion.outcome == "partial"
+    assert completion.detail["failed_specialists"] == ["security"]
 
 
 async def test_metrics_require_auth_and_expose_counters(client_app, auth_headers):

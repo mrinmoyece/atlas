@@ -2,9 +2,9 @@
 
 ## The gap this addresses
 
-LangChain's 2026 State of Agent Engineering survey: ~89% of teams with
-agents in production have observability; ~52% have evals. Observability
-tells you what happened. Only evaluation tells you whether it was right.
+Observability tells you what happened. Only evaluation tells you whether the
+result was right. Atlas keeps those concerns separate and makes the quality
+bar executable.
 
 ## Three sources of truth, deliberately separate
 
@@ -70,7 +70,7 @@ protocol is the seam where a model-backed judge would attach.
 |---|---|---|---|
 | `smoke` | every PR | one repo, one pattern | yes (fast failure) |
 | `standard` | merge | full golden set, scoring + judge, gates | **yes** |
-| `extended` | nightly | standard + a smoke pass per pattern | no, alerts |
+| `extended` | manual / available for scheduling | standard + a smoke pass per pattern | no |
 
 Gates live in `GATES` in `src/atlas/evals/runner.py`, next to the runner —
 a quality bar that isn't executable isn't a bar:
@@ -127,7 +127,12 @@ python -m evals.gate --pattern reflexion
 ```
 
 Exit code 1 on gate failure. The report is written to `evals/last_run.md`
-and uploaded as a CI artifact.
+and uploaded as a CI artifact. The committed
+[standard-tier snapshot](../evals/last_run.md) is regenerated in CI so quality
+evidence remains reviewable without downloading an artifact.
+
+The checked-in CI workflow runs smoke and standard tiers. `extended` is a
+manual tier; no nightly schedule is currently shipped.
 
 ## What these numbers do and do not mean
 
@@ -138,10 +143,13 @@ authored. That is a real and uncommon thing to have built - it is not a
 finding about model quality, and describing it as one is the easiest claim
 in this repository to falsify (open `scenarios.py`).
 
-Producing real numbers needs `ATLAS_PROVIDER=anthropic`, N>=10 repetitions
-per scenario, and pass-rate distributions instead of point estimates. That
-run has not been done. Until it appears in this document, nothing here is
-evidence about how an agent performs.
+Producing live-model numbers needs a runner that injects a provider model
+instead of the scripted `model_for(repo)`, N>=10 repetitions per scenario,
+and pass-rate distributions instead of point estimates. The current
+`run_repo`, benchmark and memory A/B paths instantiate the scripted model
+directly; setting `ATLAS_PROVIDER` does not change them. No live-provider
+runner or experiment exists yet, so nothing here is evidence about live-model
+performance.
 
 ## Scoring rules worth knowing
 

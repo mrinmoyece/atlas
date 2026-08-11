@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from contextlib import asynccontextmanager, contextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -327,6 +328,8 @@ def create_app(
             request_id=request_id,
             findings=len(report.findings),
             cost_usd=report.cost_usd,
+            outcome="partial" if report.errors else "success",
+            failed_specialists=sorted(report.errors),
         )
 
         return AnalysisResponse(
@@ -394,6 +397,7 @@ def create_app(
             """
             queue: asyncio.Queue[str | None] = asyncio.Queue()
             loop = asyncio.get_running_loop()
+            started = time.monotonic()
             totals: dict[str, Any] = {"findings": 0, "cost_usd": 0.0, "report": None}
             collected: list[Any] = []
             stream_errors: dict[str, str] = {}
@@ -443,13 +447,15 @@ def create_app(
                                     },
                                 )
                             )
+                    duration_ms = int((time.monotonic() - started) * 1000)
                     limiter.record_spend(principal.subject, totals["cost_usd"], reserved=reserved)
                     settled["done"] = True
                     # Learn, exactly as the non-streaming path does. Wiring
                     # memory into only one of two run routes is how "the hub
                     # stays empty forever" comes back through the side door.
                     if hub.enabled and totals["report"] is not None:
-                        report = totals["report"]
+                        report = totals["report"].model_copy(update={"duration_ms": duration_ms})
+                        totals["report"] = report
                         hub.learn_from_report(
                             report,
                             context_key=graph_context_key({"repo_root": str(root)}),
@@ -457,6 +463,13 @@ def create_app(
                             success=not report.errors
                             and any(f.is_grounded() for f in report.findings),
                         )
+                    metrics.record_run(
+                        repo=body.repo,
+                        findings=totals["findings"],
+                        cost_usd=totals["cost_usd"],
+                        duration_ms=duration_ms,
+                        failed_specialists=len(stream_errors),
+                    )
                     audit_log.record(
                         actor=principal.subject,
                         action="run:complete",
@@ -464,6 +477,8 @@ def create_app(
                         request_id=request_id,
                         findings=totals["findings"],
                         cost_usd=round(totals["cost_usd"], 6),
+                        outcome="partial" if stream_errors else "success",
+                        failed_specialists=sorted(stream_errors),
                     )
                     emit(
                         _sse(
