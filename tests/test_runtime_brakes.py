@@ -15,8 +15,15 @@ from typing import Any
 import pytest
 
 from atlas.config import Settings
+from atlas.domain.types import Category
 from atlas.evals.scenarios import model_for
-from atlas.graph.build import _ledger, run_due_diligence
+from atlas.graph.build import (
+    _ledger,
+    _make_cost_guard,
+    _RunLedger,
+    build_graph,
+    run_due_diligence,
+)
 from atlas.llm.scripted import ScriptedChatModel
 from atlas.tools.repo import (
     GREP_DEADLINE_S,
@@ -81,6 +88,56 @@ def test_other_specialists_still_contribute_when_one_hangs(legacy_root):
 # ---------------------------------------------------------------------------
 # Run cost ceiling
 # ---------------------------------------------------------------------------
+
+
+def _direct_graph_state(legacy_root, *, run_id: str | None = None) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "repo": "legacy-billing",
+        "repo_root": str(legacy_root),
+        "requested_categories": ["security"],
+        "findings": [],
+        "results": [],
+        "summaries": {},
+        "errors": {},
+        "tokens_used": 0,
+        "cost_usd": 0.0,
+        "model_calls": 0,
+        "steps": 0,
+    }
+    if run_id is not None:
+        state["run_id"] = run_id
+    return state
+
+
+@pytest.mark.parametrize(
+    ("run_id", "message"),
+    [
+        (None, "run_id is required"),
+        ("not-admitted", "was not admitted"),
+    ],
+)
+def test_direct_graph_invocation_requires_ledger_admission(legacy_root, run_id, message):
+    model = model_for("legacy-billing")
+    app = build_graph(model=model, categories=(Category.SECURITY,))
+
+    with pytest.raises((ValueError, RuntimeError), match=message):
+        app.invoke(
+            _direct_graph_state(legacy_root, run_id=run_id),
+            config={"configurable": {"thread_id": f"governance-{run_id}"}},
+        )
+
+    assert model.call_count == 0
+    assert _ledger.total(run_id or "") == 0.0
+
+
+def test_cost_guard_fails_closed_if_an_admitted_run_is_retired():
+    run_id = "retired-before-call"
+    _ledger.begin(run_id)
+    guard = _make_cost_guard(run_id, Category.SECURITY, ceiling=5.0)
+    _ledger.reset(run_id)
+
+    with pytest.raises(RuntimeError, match="not active"):
+        guard(0.0)
 
 
 @pytest.mark.parametrize(
@@ -325,6 +382,29 @@ def test_the_ledger_does_not_leak_keys_across_runs(legacy_root):
             settings=Settings(provider="scripted"),
         )
     assert len(_ledger._by_specialist) == before, "ledger keys leaked after the run finished"
+
+
+def test_retired_run_tombstones_are_bounded_and_late_updates_cannot_resurrect_state():
+    now = [0.0]
+    ledger = _RunLedger(max_retired=2, retired_ttl_s=10.0, clock=lambda: now[0])
+
+    ledger.begin("old")
+    ledger.report("old", "security", 0.1)
+    ledger.reset("old")
+    for run_key in ("newer", "newest"):
+        ledger.begin(run_key)
+        ledger.reset(run_key)
+
+    assert list(ledger._retired) == ["newer", "newest"]
+    now[0] = 11.0
+
+    # A daemon specialist can return after both eviction and expiry. Unknown
+    # runs are denied unless begin() admitted them, so it cannot recreate a
+    # spend entry that no future reset would clean up.
+    assert ledger.report("old", "security", 9.9) == 0.0
+    ledger.settle("newer", "security", 9.9)
+    assert ledger._retired == {}
+    assert ledger._by_specialist == {}
 
 
 # ---------------------------------------------------------------------------

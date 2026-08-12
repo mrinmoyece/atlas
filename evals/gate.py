@@ -2,7 +2,7 @@
 
     python -m evals.gate --tier smoke      # fast PR check
     python -m evals.gate --tier standard   # merge gate
-    python -m evals.gate --tier extended   # nightly
+    python -m evals.gate --tier extended   # manual all-pattern exercise
 
 Exit code 1 on gate failure, so agent quality blocks a merge the same way a
 failing unit test does. The report is written to evals/last_run.md and
@@ -32,8 +32,7 @@ def main() -> int:
     print(rendered)
 
     if args.tier == "extended":
-        # Nightly additionally proves the memory experiment still runs and
-        # that every pattern remains executable end to end.
+        # Additionally prove every pattern remains executable end to end.
         from atlas.patterns import PATTERNS
 
         for name in sorted(PATTERNS):

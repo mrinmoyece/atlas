@@ -71,7 +71,6 @@ def act_three() -> None:
 
 def act_four() -> None:
     banner("ACT 4 - does memory help? (measured, including where it doesn't)")
-    from atlas.graph.build import _context_key
 
     # Use the SAME context key the graph uses. An earlier version of this
     # demo learned under "repo:generic" while the graph looked up
@@ -79,7 +78,7 @@ def act_four() -> None:
     # printed a *separately* recalled block under the caption "injected into
     # the next run's prompt". The numbers said no change; the caption implied
     # otherwise. Deriving the key removes the possibility of that drift.
-    key = _context_key({"repo": "legacy-billing"})
+    key = _demo_context_key()
 
     hub = MemoryHub(enabled=True)
     cold = run_repo("legacy-billing", pattern="react", memory=MemoryHub(enabled=False))
@@ -122,6 +121,12 @@ def act_four() -> None:
     print("  with lesson-shaped text. Hybrid retrieval (metadata filter, then")
     print("  vector rank) is what production stores do, and what fixed it.")
     print("  docs/MEMORY.md has the full trace.")
+
+
+def _demo_context_key() -> str:
+    from atlas.graph.build import _context_key
+
+    return _context_key({"repo_root": str(FIXTURES / "legacy-billing")})
 
 
 def act_five() -> None:
@@ -179,7 +184,7 @@ def main() -> None:
     act_three()
     act_four()
     act_five()
-    banner("Done. `make gate` runs lint + tests + the eval quality gate.")
+    banner("Done. `make gate` runs lint, tests, eval/report drift and performance budgets.")
 
 
 if __name__ == "__main__":

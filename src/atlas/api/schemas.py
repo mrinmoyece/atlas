@@ -23,7 +23,9 @@ class AnalysisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")  # reject unknown fields outright
 
     repo: str = Field(min_length=1, max_length=128)
-    pattern: str = "react"
+    # None means "let the graph choose": procedural memory first, then the
+    # graph's deterministic default. An explicit value always wins.
+    pattern: str | None = None
     categories: list[str] = Field(default_factory=list, max_length=4)
 
     @field_validator("repo")
@@ -39,8 +41,8 @@ class AnalysisRequest(BaseModel):
 
     @field_validator("pattern")
     @classmethod
-    def _known_pattern(cls, v: str) -> str:
-        if v not in VALID_PATTERNS:
+    def _known_pattern(cls, v: str | None) -> str | None:
+        if v is not None and v not in VALID_PATTERNS:
             raise ValueError(f"pattern must be one of {sorted(VALID_PATTERNS)}")
         return v
 
@@ -50,7 +52,15 @@ class AnalysisRequest(BaseModel):
         unknown = set(v) - VALID_CATEGORIES
         if unknown:
             raise ValueError(f"unknown categories: {sorted(unknown)}")
-        return v
+        # Deduplicate while preserving order so duplicate inputs do not
+        # cause a graph-construction 500 (LangGraph rejects duplicate node names).
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for cat in v:
+            if cat not in seen:
+                seen.add(cat)
+                deduped.append(cat)
+        return deduped
 
 
 class EvidenceView(BaseModel):

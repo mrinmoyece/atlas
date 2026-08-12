@@ -37,7 +37,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -74,20 +74,80 @@ class _RunLedger:
     Per-specialist subtotals are tracked so a specialist's incremental
     reports can be reconciled against its final figure without double
     counting.
+
+    Timed-out specialists continue as daemon threads; their late
+    `report()`/`settle()` calls must not re-insert entries for a run that has
+    already been reset. Runs must therefore be admitted with `begin()` before
+    spend is accepted. `_retired` retains a bounded, expiring diagnostic tail;
+    once a tombstone expires, the absent active-run admission still rejects
+    late updates.
     """
 
-    def __init__(self) -> None:
+    MAX_RETIRED = 1_024
+    RETIRED_TTL_S = 300.0
+
+    def __init__(
+        self,
+        *,
+        max_retired: int = MAX_RETIRED,
+        retired_ttl_s: float = RETIRED_TTL_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._by_specialist: dict[tuple[str, str], float] = {}
+        self._active: set[str] = set()
+        self._retired: OrderedDict[str, float] = OrderedDict()
+        self._max_retired = max(1, max_retired)
+        self._retired_ttl_s = max(0.0, retired_ttl_s)
+        self._clock = clock
         self._lock = threading.Lock()
+
+    def _prune_retired_locked(self, now: float) -> None:
+        while self._retired:
+            _, expires_at = next(iter(self._retired.items()))
+            if expires_at > now:
+                break
+            self._retired.popitem(last=False)
+
+    def begin(self, run_key: str) -> None:
+        """Admit a new run before any specialist can report spend."""
+        if not isinstance(run_key, str) or not run_key:
+            raise ValueError("run_id must be a non-empty string")
+        with self._lock:
+            self._prune_retired_locked(self._clock())
+            self._active.add(run_key)
+
+    def require_active(self, run_key: str) -> None:
+        """Fail unless the run was admitted and has not been retired."""
+        if not isinstance(run_key, str) or not run_key:
+            raise ValueError("run_id is required for cost governance")
+        with self._lock:
+            self._prune_retired_locked(self._clock())
+            if run_key not in self._active:
+                raise RuntimeError(f"run_id {run_key!r} was not admitted to the cost ledger")
 
     def report(self, run_key: str, specialist: str, spent_so_far: float) -> float:
         """Record a specialist's running total; return the whole-run total."""
         with self._lock:
+            self._prune_retired_locked(self._clock())
+            if run_key not in self._active:
+                return 0.0
+            self._by_specialist[(run_key, specialist)] = max(0.0, spent_so_far)
+            return sum(v for (r, _), v in self._by_specialist.items() if r == run_key)
+
+    def report_admitted(self, run_key: str, specialist: str, spent_so_far: float) -> float:
+        """Record spend for an admitted run, failing closed if it was retired."""
+        with self._lock:
+            self._prune_retired_locked(self._clock())
+            if run_key not in self._active:
+                raise RuntimeError(f"run_id {run_key!r} is not active in the cost ledger")
             self._by_specialist[(run_key, specialist)] = max(0.0, spent_so_far)
             return sum(v for (r, _), v in self._by_specialist.items() if r == run_key)
 
     def settle(self, run_key: str, specialist: str, final_cost: float) -> None:
         with self._lock:
+            self._prune_retired_locked(self._clock())
+            if run_key not in self._active:
+                return
             self._by_specialist[(run_key, specialist)] = max(0.0, final_cost)
 
     def total(self, run_key: str) -> float:
@@ -96,8 +156,15 @@ class _RunLedger:
 
     def reset(self, run_key: str) -> None:
         with self._lock:
+            now = self._clock()
+            self._prune_retired_locked(now)
+            self._active.discard(run_key)
             for key in [k for k in self._by_specialist if k[0] == run_key]:
                 del self._by_specialist[key]
+            self._retired[run_key] = now + self._retired_ttl_s
+            self._retired.move_to_end(run_key)
+            while len(self._retired) > self._max_retired:
+                self._retired.popitem(last=False)
 
 
 _ledger = _RunLedger()
@@ -107,7 +174,7 @@ def _make_cost_guard(run_key: str, category: Category, ceiling: float):
     """Guard consulted before every model call in this specialist."""
 
     def guard(spent_by_this_specialist: float) -> bool:
-        run_total = _ledger.report(run_key, category.value, spent_by_this_specialist)
+        run_total = _ledger.report_admitted(run_key, category.value, spent_by_this_specialist)
         return run_total < ceiling
 
     return guard
@@ -237,6 +304,10 @@ def build_graph(
     def plan_node(state: DDState) -> dict:
         """Supervisor: choose specialists by *capability*, not by name, and
         pull any relevant prior experience from memory."""
+        run_id = state.get("run_id")
+        if not isinstance(run_id, str):
+            raise ValueError("run_id is required for cost governance")
+        _ledger.require_active(run_id)
         with span("graph.plan", repo=state.get("repo", "")):
             wanted = state.get("requested_categories") or [c.value for c in categories]
             # Capability-driven routing: the roster is discovered from agent
@@ -302,7 +373,26 @@ def build_graph(
             # analyses of the same repo shared one ceiling (run B halted by
             # run A's spend), and either run's `reset` wiped the other's four
             # in-flight subtotals, under-counting its ceiling by up to 4x.
-            run_key = state.get("run_id") or state.get("repo", "")
+            run_key = state.get("run_id")
+            if not isinstance(run_key, str):
+                raise ValueError("run_id is required for cost governance")
+            _ledger.require_active(run_key)
+            strategy_name = state.get("strategy") or pattern_name or DEFAULT_PATTERN
+            usage: dict[str, int | float] = {
+                "model_calls": 0,
+                "tokens_used": 0,
+                "cost_usd": 0.0,
+            }
+            usage_lock = threading.Lock()
+
+            def observe_usage(model_calls: int, tokens_used: int, cost_usd: float) -> None:
+                with usage_lock:
+                    usage.update(
+                        model_calls=model_calls,
+                        tokens_used=tokens_used,
+                        cost_usd=cost_usd,
+                    )
+
             card = card_for(category)
             with span("graph.specialist", category=category.value, agent=card.name):
                 try:
@@ -331,6 +421,7 @@ def build_graph(
                         token_budget=TokenBudget(limit=cfg.context_token_budget),
                         keep_recent=cfg.compaction_keep_recent,
                         cost_guard=_make_cost_guard(run_key, category, cfg.max_cost_usd),
+                        usage_observer=observe_usage,
                     )
                     # Wall-clock timeout for the specialist.
                     #
@@ -355,7 +446,6 @@ def build_graph(
                     # documented in LIMITATIONS.md. Killing it properly means
                     # running tools in a subprocess, the same boundary an
                     # exec-capable tool would need anyway.
-                    strategy_name = state.get("strategy") or pattern_name or DEFAULT_PATTERN
                     box: dict[str, Any] = {}
 
                     def _run_pattern() -> None:
@@ -379,10 +469,36 @@ def build_graph(
                         raise box["error"]
                     outcome = box["result"]
                 except Exception as e:  # noqa: BLE001 - isolate specialist failure
+                    duration_ms = int((time.monotonic() - started) * 1000)
+                    with usage_lock:
+                        model_calls = int(usage["model_calls"])
+                        tokens_used = int(usage["tokens_used"])
+                        cost_usd = round(float(usage["cost_usd"]), 8)
+                    _ledger.settle(run_key, category.value, cost_usd)
+                    record_specialist(
+                        category=category.value,
+                        pattern=strategy_name,
+                        findings=0,
+                        tokens=tokens_used,
+                        cost_usd=cost_usd,
+                        duration_ms=duration_ms,
+                        ok=False,
+                    )
                     log.exception("specialist_failed", extra={"ctx": {"category": category.value}})
                     return {
                         "errors": {category.value: f"{type(e).__name__}: {e}"},
-                        "results": [SpecialistResult(category=category, error=str(e)[:500])],
+                        "results": [
+                            SpecialistResult(
+                                category=category,
+                                tokens_used=tokens_used,
+                                cost_usd=cost_usd,
+                                model_calls=model_calls,
+                                error=str(e)[:500],
+                            )
+                        ],
+                        "tokens_used": tokens_used,
+                        "cost_usd": cost_usd,
+                        "model_calls": model_calls,
                     }
 
             duration_ms = int((time.monotonic() - started) * 1000)
@@ -553,6 +669,7 @@ def stream_due_diligence(
     )
     run_id = uuid.uuid4().hex
     initial = _initial_state(repo, repo_root, categories, run_id)
+    _ledger.begin(run_id)
     try:
         yield from app.stream(
             initial,
@@ -656,6 +773,7 @@ def run_due_diligence(
     )
     run_id = uuid.uuid4().hex
     initial = _initial_state(repo, repo_root, categories, run_id)
+    _ledger.begin(run_id)
     try:
         final = app.invoke(
             initial, config={"configurable": {"thread_id": thread_id or f"dd-{repo}"}}

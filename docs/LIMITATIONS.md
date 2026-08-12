@@ -8,10 +8,12 @@ upgrade path.
   pattern differences; not enough for statistical confidence. Upgrade: more
   fixtures across languages, and a held-out set the scripts have never seen.
 - **Deterministic model.** Results prove the harness works, not that a live
-  model performs this way. Upgrade: `ATLAS_PROVIDER=anthropic`, N runs per
-  scenario, pass-rate thresholds instead of exact assertions.
+  model performs this way. The current eval, benchmark and memory A/B paths
+  instantiate `model_for(repo)` directly, so `ATLAS_PROVIDER=anthropic` does
+  not switch them. Upgrade: add an explicit provider-injected runner, N runs
+  per scenario and pass-rate thresholds instead of exact assertions.
 - **Rule-based judge by default.** Cannot assess prose quality. Upgrade: LLM
-  judge behind the same `Judge` protocol, nightly tier only.
+  judge behind the same `Judge` protocol, extended/manual tier only.
 - **Rule renames are not caught** by the fixture/ground-truth sync test —
   only paths are verified.
 
@@ -88,6 +90,24 @@ upgrade path.
 - **No multi-region HA.** Durable regional stores, replication/failover,
   idempotency and reconciliation are future architecture work, not a replica
   count change.
+- **Live-provider cost is not priced.** Runtime metering consumes
+  `response_metadata["cost_usd"]`; the scripted model supplies it, but the
+  current `ChatAnthropic` adapter does not. Pre-flight reservations still bound
+  concurrent admissions, but sequential live requests settle at zero, so the
+  daily spend ledger and run-cost brake are not effective cost controls on that
+  path. Upgrade: normalise provider usage through a versioned pricing adapter
+  and test cached-input/output-token cases before claiming monetary enforcement.
+
+## Observability
+- **Retrieval and compaction lack exported metrics.** `RecallResult` and
+  `CompactionResult` make the data available in process, while Prometheus
+  currently has no retrieval or compaction-savings series. Upgrade: bounded
+  counters/histograms for attempts, hits, injected records, latency,
+  compactions and saved tokens.
+- **No HTTP request/error SLI is emitted by Atlas.** Availability and status-code
+  objectives require ingress metrics or an external probe. The shipped metrics
+  cover graph/specialist execution, auth, limits, tokens, scripted cost and
+  cache use.
 
 ## Supply chain
 - **Dependency SBOM, not a complete runtime inventory.** CI produces a

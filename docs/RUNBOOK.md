@@ -35,15 +35,49 @@ kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/servicemonitor.yaml
 ```
 
-Required configuration:
+### Configuration reference
 
-| Variable | Purpose | Notes |
+Application settings use the `ATLAS_` prefix
+([source](../src/atlas/config.py)):
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `ATLAS_API_KEYS` | unset | `key_id:sha256:roles;...`; without it every protected route 401s |
+| `ATLAS_PROVIDER` | `scripted` | `scripted` or `anthropic` |
+| `ATLAS_MODEL` | `claude-sonnet-4-5` | live-provider model identifier |
+| `ATLAS_ANTHROPIC_API_KEY` | unset | live-provider credential; secret |
+| `ATLAS_CONTEXT_TOKEN_BUDGET` | `12000` | estimated input tokens per model call |
+| `ATLAS_COMPACTION_KEEP_RECENT` | `6` | recent messages retained during compaction |
+| `ATLAS_MAX_STEPS_PER_SPECIALIST` | `12` | tool/model loop bound |
+| `ATLAS_MAX_COST_USD` | `5.0` | pre-call run-cost brake and admission reservation |
+| `ATLAS_SPECIALIST_TIMEOUT_S` | `60` | wall-clock wait per specialist |
+| `ATLAS_DAILY_SPEND_USD` | `25.0` | per-principal daily admission ledger |
+| `ATLAS_REQUESTS_PER_MINUTE` | `60.0` | per-principal token-bucket refill |
+| `ATLAS_RATE_LIMIT_BURST` | same as rate | optional token-bucket capacity |
+| `ATLAS_RATE_LIMIT_MAX_BUCKETS` | `10000` | bound on tracked principal state |
+| `ATLAS_RATE_LIMIT_BUCKET_TTL_S` | `3600` | idle principal eviction |
+| `ATLAS_AUDIT_SINK` | unset | optional append-only JSONL path |
+| `ATLAS_AUDIT_MEMORY_MAX_ENTRIES` | `10000` | retained in-process audit tail |
+| `ATLAS_MEMORY_ENABLED` | `true` | enable the in-process memory hub |
+| `ATLAS_MEMORY_TOP_K` | `3` | maximum semantic lessons retrieved |
+| `ATLAS_MEMORY_DECAY_HALF_LIFE_RUNS` | `50` | semantic recency half-life |
+| `ATLAS_OTEL_ENDPOINT` | unset | OTLP HTTP trace endpoint; unset is a no-op |
+| `ATLAS_SERVICE_NAME` | `atlas` | OpenTelemetry service name |
+
+Path and harness overrides are read directly by their owning entry points:
+
+| Variable | Used by | Purpose |
 |---|---|---|
-| `ATLAS_API_KEYS` | `key_id:sha256:roles;...` | **Without this every route 401s.** By design. |
-| `ATLAS_PROVIDER` | `scripted` or `anthropic` | `scripted` runs offline |
-| `ATLAS_ANTHROPIC_API_KEY` | model access | secret, never logged |
-| `ATLAS_OTEL_ENDPOINT` | trace export | unset → tracing is a no-op |
-| `ATLAS_MAX_COST_USD` | per-run ceiling | |
+| `ATLAS_FIXTURES_ROOT` | API | analysable fixture directory for installed/container layouts |
+| `ATLAS_PROJECT_ROOT` | eval runner | repository root containing fixtures and answer key |
+| `ATLAS_LOAD_TEST_KEY` | Locust | raw load-test API key; never commit it |
+| `ATLAS_PORT`, `PROMETHEUS_PORT` | Compose | loopback host-port overrides |
+
+The scripted provider supplies synthetic token and priced-cost metadata for
+offline tests. The current Anthropic adapter does not convert usage into
+`cost_usd`; do not rely on `ATLAS_MAX_COST_USD` or
+`ATLAS_DAILY_SPEND_USD` as monetary controls for live-provider traffic
+([limitation](LIMITATIONS.md#security)).
 
 Generate a key hash:
 ```bash
@@ -68,13 +102,16 @@ Before admitting traffic:
       and confirm the cloud metadata endpoint remains unreachable.
 - [ ] Mount durable storage and set `ATLAS_AUDIT_SINK` if local JSONL retention
       is required; verify permissions, restart recovery and chain validation.
+- [ ] On Kubernetes, verify a default `StorageClass` exists and the
+      `atlas-audit` PVC is `Bound` before admitting traffic.
 - [ ] Probe public `/healthz`, then authenticate `/metrics`, a read request, an
       analysis and an admin-only audit request with the expected roles. Also
       confirm missing, viewer and invalid credentials fail as expected.
 - [ ] Exercise one SSE analysis through the real ingress and confirm events
       arrive incrementally; test request-size and 429 behaviour.
-- [ ] Confirm alerts, trace export, backups/restore procedure and image/SBOM
-      provenance before declaring the instance operational.
+- [ ] Install site-specific alerts from the signals below, test trace export,
+      rehearse audit-volume restore, and verify image/SBOM provenance. Atlas
+      does not ship Alertmanager or `PrometheusRule` resources.
 
 ## Monitoring
 
@@ -103,6 +140,10 @@ Signals worth alerting on:
 Traces: every graph node, model call and tool call is a span. Parallel
 specialists appear as concurrent spans — if they appear sequential, fan-out
 is broken.
+
+Atlas intentionally does not ship alert-manager configuration: routing,
+escalation and paging ownership are deployment-specific. The queries above are
+signal examples, not installed alerts.
 
 ## Incidents
 
@@ -159,25 +200,39 @@ the verdict. No corruption. Re-run affected repositories after recovery.
 
 ## Rollback
 
-The service is stateless apart from in-process checkpointing, memory, limits
-and the bounded audit tail. Rolling back is a normal single-image rollback.
-Those in-memory states are lost on restart. An optional JSONL audit sink can
-survive on a durable mounted volume, but memory and checkpoints do not; see
-LIMITATIONS.md.
+1. Stop new traffic and preserve the request IDs, current image digest,
+   configuration and audit volume.
+2. Verify the JSONL audit chain by starting the known-good image against a
+   read-only copy first; startup rejects a malformed chain.
+3. Kubernetes: `kubectl rollout undo deployment/atlas`, then wait for
+   `kubectl rollout status deployment/atlas`. Compose has no release registry
+   in this repository; pin the previously tested image in an override before
+   recreating the service.
+4. Probe `/healthz`, authenticate `/metrics`, run one fixture analysis and
+   verify `/v1/audit` reports `chain_valid: true`.
+5. Re-run analyses that were in flight. Checkpoints, memory, request buckets
+   and spend-ledger state are process-local and are lost on restart; they have
+   no recovery path.
 
-## Example service objectives (reference deployment only)
+The optional JSONL audit sink can survive on a durable mounted volume, but it
+does not protect against host loss or an attacker controlling that host. See
+[limitations](LIMITATIONS.md).
+
+## Reference SLIs and example objectives
 
 These are starting points for a **single-instance CV/reference deployment**,
 not measured guarantees or enterprise commitments:
 
-| Objective | Example target | Scope and caveat |
+| Objective | Example target | SLI source and caveat |
 |---|---|---|
-| Availability | 99.0% monthly, excluding announced maintenance | One instance has unavoidable restart/host failure downtime |
-| Platform latency | 99% of scripted-provider `/healthz` and `/metrics` requests within the current performance p99 budgets | Excludes ingress and model-provider latency |
-| Analysis success | 99% complete or return an explicit partial report/error | Provider failures may degrade a run rather than fail it |
-| RTO | 30 minutes | Restore one known-good image, configuration and audit volume |
-| RPO | 24 hours for configuration; last flushed JSONL record for audit | Checkpoints and memory have no durable RPO: all in-process state may be lost |
+| Availability | 99.0% monthly, excluding maintenance | external `/healthz` probe or ingress status metrics; Atlas emits no HTTP request SLI |
+| Platform analysis latency | p95/p99 within the current scripted-provider budgets | `histogram_quantile` over `atlas_run_duration_ms_bucket`; excludes ingress and provider latency |
+| Specialist success | 99% of specialist runs have `outcome="ok"` | `atlas_specialist_runs_total`; partial reports remain successful HTTP responses |
+| RTO | 30 minutes | timed restore drill of image, configuration and audit volume |
+| Audit RPO | last fsynced JSONL entry | one `fsync` per record when `ATLAS_AUDIT_SINK` is set |
+| Memory/checkpoint RPO | none | all in-process state can be lost on restart |
 
-Choose real targets from workload and restore tests. Multi-region availability,
-durable run recovery and tighter RPO require the enterprise extension path
-described in `LIMITATIONS.md`; changing an SLO does not create that machinery.
+These targets are examples, not measured guarantees. Choose production targets
+only after deployed load and restore drills. Multi-region availability, durable
+run recovery and tighter RPO require the extension path in
+[LIMITATIONS.md](LIMITATIONS.md); changing an SLO does not create that machinery.

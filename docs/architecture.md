@@ -10,13 +10,20 @@
 3. **Tools are confined, bounded and deterministic.** Path confinement,
    output caps, and identical output for identical inputs — the last is a
    precondition for reproducible evals.
-4. **Nothing is enforced by prompt alone.** Tool allowlists, spend caps,
-   step budgets and RBAC are code paths. Prompts add defence in depth.
+4. **Nothing is enforced by prompt alone.** Tool allowlists, spend admission,
+   pre-call cost brakes, step budgets and RBAC are code paths. Prompts add
+   defence in depth. Live monetary enforcement still requires priced provider
+   usage; see `docs/LIMITATIONS.md`.
 5. **Memory is written from structured results only.** Never from prose.
 6. **The verdict is derived, not generated.** Synthesis computes from
    findings, so it cannot invent a severity nobody reported.
 7. **The eval model is deterministic.** Behaviour is asserted exactly, and
    any variance in results means the *system* changed.
+
+The rationale and alternatives for these choices are indexed in the
+[architecture decision records](README.md#decision-records). The
+[AI system design case study](ai-system-design.md) is the canonical
+cross-cutting lifecycle and evidence narrative.
 
 ## Layers
 
@@ -91,7 +98,7 @@ POST /v1/analyses
                      each: pattern loop → compaction → tools → parse → validate
        fan-in     : reducers merge findings/summaries/costs/errors
        synthesise : verdict derived from structured findings
-  → record actual spend, audit: run:complete
+  → settle reported spend, audit: run:complete
   → response: findings with evidence, counts, cost, request id
 ```
 

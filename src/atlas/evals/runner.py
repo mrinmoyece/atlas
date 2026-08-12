@@ -5,8 +5,8 @@ Tiered evaluation, mirroring what production teams converge on:
     smoke     seconds. Runs on every PR. Catches "the graph is broken".
     standard  the full golden set with ground-truth scoring + judge.
               This is the merge gate.
-    extended  standard + the memory A/B experiment + hallucination rate.
-              Nightly.
+    extended  standard + a smoke pass for every registered pattern.
+              Available for manual or scheduled execution; not wired in CI.
 
 The gate thresholds live here, in code, next to the runner - not in a wiki.
 A quality bar that isn't executable isn't a bar.

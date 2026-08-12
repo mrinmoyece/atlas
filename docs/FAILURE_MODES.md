@@ -59,21 +59,27 @@ bounded only by output caps and the injection guard.
 **Tested by** `test_remote_tools_are_allowlisted_and_namespaced`.
 
 ## 8. Credential compromise
-**Behaviour.** Rate limits and daily spend caps bound the damage; the audit
-log records every action with actor and cost; hash chaining makes cleanup
-detectable.
-**Residual risk.** In-process limits multiply by replica count. Redis is the
-documented fix.
+**Behaviour.** Rate limits bound request volume; spend reservations bound
+concurrent admissions; the audit log records every action with actor and
+reported cost; hash chaining makes cleanup detectable.
+**Residual risk.** In-process limits multiply by replica count, and the current
+Anthropic adapter does not report priced cost. Redis and a provider-pricing
+adapter are separate required fixes.
 
 ## 9. Cost runaway
-**Behaviour.** Four independent brakes: per-specialist step budget, context
-budget, per-principal daily spend checked pre-flight, and cost metrics for
-alerting.
-**Residual risk.** Spend is projected pessimistically before a run and
-reconciled after; a single run can exceed its projection.
+**Behaviour.** Four independent brakes in the priced scripted path:
+per-specialist step budget, context budget, per-principal spend reservation,
+and a run ledger checked before each model call. Cost metrics support alerting.
+**Residual risk.** An admitted call can take a run beyond the configured
+maximum. The current Anthropic adapter does not price usage into `cost_usd`,
+so sequential live-provider requests settle at zero and monetary controls are
+not effective on that path; see `LIMITATIONS.md`.
+**Tested by** `tests/test_runtime_brakes.py` for reservations and pre-call
+braking.
 
 ## 10. Eval/fixture drift
 **Behaviour.** `test_fixtures_and_ground_truth_stay_in_sync` fails if ground
 truth cites a path that no longer exists — otherwise scoring silently
 degrades as fixtures are edited.
 **Residual risk.** A renamed *rule* is not caught; only paths are verified.
+**Tested by** `tests/test_evals.py`.

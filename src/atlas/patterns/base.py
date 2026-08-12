@@ -101,6 +101,10 @@ class PatternContext(BaseModel):
     # each sees zero spend. The only place a budget can actually brake is
     # immediately before the next thing that costs money.
     cost_guard: Callable[[float], bool] | None = None
+    # Receives cumulative usage after every completed model call. The graph
+    # uses this to retain spend when a later operation raises before a
+    # PatternResult can be returned.
+    usage_observer: Callable[[int, int, float], None] | None = None
 
     def bound(self, model: BaseChatModel) -> BaseChatModel:
         """`model` with this toolkit's schemas attached, bound once."""
@@ -186,6 +190,8 @@ def call_model(
     with span("llm.call", category=ctx.category.value, messages=len(working)):
         response = ctx.bound(model).invoke(working)
     meter.record_model(response)
+    if ctx.usage_observer is not None:
+        ctx.usage_observer(meter.model_calls, meter.tokens, meter.cost)
     return response, working
 
 

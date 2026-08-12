@@ -595,57 +595,69 @@ def test_eval_runs_do_not_write_memory_twice():
 
 def test_memory_can_advise_a_pattern_when_none_is_requested(legacy_root):
     from atlas.evals.scenarios import model_for
-    from atlas.graph.build import build_graph
+    from atlas.graph.build import _ledger, build_graph
 
     hub = MemoryHub(enabled=True)
     for _ in range(10):
         hub.procedural.record(context_key="repo:standard", strategy="rewoo", success=True)
 
     app = build_graph(model=model_for("legacy-billing"), memory=hub, pattern_name=None)
-    state = app.invoke(
-        {
-            "repo": "legacy-billing",
-            "repo_root": str(legacy_root),
-            "requested_categories": ["security"],
-            "findings": [],
-            "results": [],
-            "summaries": {},
-            "errors": {},
-            "tokens_used": 0,
-            "cost_usd": 0.0,
-            "model_calls": 0,
-            "steps": 0,
-        },
-        config={"configurable": {"thread_id": "advise-test"}},
-    )
+    run_id = "advise-test"
+    _ledger.begin(run_id)
+    try:
+        state = app.invoke(
+            {
+                "repo": "legacy-billing",
+                "repo_root": str(legacy_root),
+                "run_id": run_id,
+                "requested_categories": ["security"],
+                "findings": [],
+                "results": [],
+                "summaries": {},
+                "errors": {},
+                "tokens_used": 0,
+                "cost_usd": 0.0,
+                "model_calls": 0,
+                "steps": 0,
+            },
+            config={"configurable": {"thread_id": "advise-test"}},
+        )
+    finally:
+        _ledger.reset(run_id)
     assert state["strategy"] == "rewoo"  # memory advised
 
 
 def test_explicit_request_still_beats_memory(legacy_root):
     from atlas.evals.scenarios import model_for
-    from atlas.graph.build import build_graph
+    from atlas.graph.build import _ledger, build_graph
 
     hub = MemoryHub(enabled=True)
     for _ in range(10):
         hub.procedural.record(context_key="repo:standard", strategy="rewoo", success=True)
 
     app = build_graph(model=model_for("legacy-billing"), memory=hub, pattern_name="reflexion")
-    state = app.invoke(
-        {
-            "repo": "legacy-billing",
-            "repo_root": str(legacy_root),
-            "requested_categories": ["security"],
-            "findings": [],
-            "results": [],
-            "summaries": {},
-            "errors": {},
-            "tokens_used": 0,
-            "cost_usd": 0.0,
-            "model_calls": 0,
-            "steps": 0,
-        },
-        config={"configurable": {"thread_id": "explicit-test"}},
-    )
+    run_id = "explicit-test"
+    _ledger.begin(run_id)
+    try:
+        state = app.invoke(
+            {
+                "repo": "legacy-billing",
+                "repo_root": str(legacy_root),
+                "run_id": run_id,
+                "requested_categories": ["security"],
+                "findings": [],
+                "results": [],
+                "summaries": {},
+                "errors": {},
+                "tokens_used": 0,
+                "cost_usd": 0.0,
+                "model_calls": 0,
+                "steps": 0,
+            },
+            config={"configurable": {"thread_id": "explicit-test"}},
+        )
+    finally:
+        _ledger.reset(run_id)
     assert state["strategy"] == "reflexion"
 
 

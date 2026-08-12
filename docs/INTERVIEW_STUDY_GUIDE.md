@@ -4,8 +4,11 @@ How to own this project under questioning. Each section: the question you'll
 be asked, the answer, and the follow-up that separates a real answer from a
 rehearsed one.
 
+This is an audience-specific rehearsal aid, not a second source of truth. Use
+the [documentation map](README.md) and follow its links for canonical detail.
+
 > The single strongest thing in this repository is not a feature. It is that
-> an adversarial review found eight real defects — including a demonstrable
+> adversarial reviews found multiple real defects — including a demonstrable
 > path-traversal escape and a leaked memory experiment — and every one was
 > fixed with a regression test that names the bug (`tests/test_regressions.py`).
 > Lead with that when asked "what went wrong?"
@@ -88,7 +91,7 @@ with that much slack is decoration.
 **Q: Does your memory system actually help?**
 
 Cross-repository: **no measurable effect**, and that's the number in
-`docs/MEMORY.md`. Longitudinal re-analysis of the same repository: +0.047
+`docs/MEMORY.md`. Longitudinal re-analysis of the same repository: +0.048
 quality. Two fixture repos is not enough transfer surface — the only cross-repo
 pair is dirty→clean, and lessons from an unsafe billing service don't apply to
 a healthy payments service.
@@ -117,7 +120,8 @@ worse than none.
 **Q: Which reasoning pattern should we use?**
 
 Depends on what you're buying, and I have numbers. Reflexion: F1 0.952,
-precision 1.000, zero traps, ~2.5× the tokens of ReAct — its self-critique is
+precision 1.000, zero traps, ~2.7× the tokens and ~1.9× the model calls of
+ReAct — its self-critique is
 the only thing that removes the false positive on the clean repo. ReWOO: 
 cheapest, recall 0.636, because it commits to an evidence plan before seeing
 evidence, so anything outside the plan is invisible. Policy: ReWOO for bulk
@@ -142,7 +146,7 @@ and most providers reject the request outright. Compaction expands cut points
 tools were already tried, which is what stops the agent repeating itself — and
 truncates individual oversized messages rather than letting one tool result
 evict the history. There's a parametrised test over `keep_recent` values, and
-`call_model` asserts the invariant before every call.
+`call_model` checks the invariant before every call.
 
 ---
 
@@ -159,11 +163,13 @@ test only tried `../../etc/passwd` and gave false confidence.
 
 **Q: What's different about securing an agent platform?**
 
-Every request spends money, so *creating a run* is the privileged action, not
-writing data. That drove the RBAC model and a pre-flight spend budget — checking
-after the run tells you the money is already gone. It was also a TOCTOU race
-until review: concurrent requests all passed the same check, so it now reserves
-inside the lock and reconciles on completion.
+A live-provider request can spend money, so *creating a run* is the privileged
+action, not writing data. That drove the RBAC model and a pre-flight spend
+reservation — checking after the run tells you the money is already gone. It
+was also a TOCTOU race until review: concurrent requests all passed the same
+check, so it now reserves inside the lock and reconciles on completion. The
+current Anthropic adapter does not yet convert usage into priced metadata, so
+daily cost enforcement is not claimed for that path.
 
 **Q: Prompt injection?**
 
@@ -203,8 +209,8 @@ security model rather than papered over.
 
 ## 9. Ten-minute walkthrough script
 
-1. *Problem* (1 min): 89% of teams with production agents have observability,
-   52% have evals. That gap is where quality dies.
+1. *Problem* (1 min): telemetry explains what happened; only evaluation checks
+   whether the result was right.
 2. *Demo* (3 min): `make demo` — narrate the traps and the pattern table.
 3. *Deep dive* (4 min): pick **evaluation** — ground truth, traps, micro vs
    macro, the gate.

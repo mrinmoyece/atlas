@@ -10,8 +10,9 @@ an information problem; a stolen run key is a financial one.
 ## Decision
 - Roles: `viewer` (run:read), `analyst` (+ run:create), `admin`
   (+ admin:manage). Creating a run is the privileged operation.
-- Two independent limits: request rate (token bucket) and **daily spend**,
-  the latter checked *before* the run with a pessimistic projection.
+- Two independent admissions: request rate (token bucket) and a **daily spend
+  reservation**, the latter checked *before* the run with the configured
+  maximum.
 - Deny-by-default authentication: no keys configured means every route 401s.
 - Keys stored as SHA-256 hashes, compared with `hmac.compare_digest`.
 - Hash-chained audit log so deletion or edit is detectable.
@@ -44,3 +45,8 @@ double the budget — hence token buckets.
 In-process limiting is single-node; behind multiple replicas the effective
 limit multiplies by replica count. Documented in LIMITATIONS.md with Redis
 as the stated fix.
+
+Monetary enforcement also depends on the provider adapter reporting priced
+`cost_usd` metadata. The scripted provider exercises that path; the current
+Anthropic adapter reports token usage but does not price it, so the
+live-provider gap remains documented rather than hidden.

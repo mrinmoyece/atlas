@@ -26,18 +26,18 @@ which exists to be found.
 
 Full model and control mapping: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
 
-Summary: Atlas accepts requests from clients that may be compromised,
-analyses repositories whose contents are attacker-authored, and spends money
-on every run. Controls are grouped as *who is calling* (`security/auth.py`),
-*how much they may do* (`security/ratelimit.py`), *what we can prove
-afterwards* (`security/audit.py`), and transport hardening
+Summary: Atlas accepts requests from clients that may be compromised, analyses
+repositories whose contents are attacker-authored, and may spend provider money
+on a live-model run. Controls are grouped as *who is calling*
+(`security/auth.py`), *how much they may do* (`security/ratelimit.py`), *what
+we can prove afterwards* (`security/audit.py`), and transport hardening
 (`security/middleware.py`).
 
 ## Known gaps
 
-Documented, not hidden — see the "Known gaps" section of the security model.
-The largest is the absence of an external sandbox for arbitrary code
-execution; Atlas therefore ships no exec tool.
+Documented, not hidden — [LIMITATIONS.md](docs/LIMITATIONS.md#security) is the
+canonical inventory. The largest is the absence of an external sandbox for
+arbitrary code execution; Atlas therefore ships no exec tool.
 
 ## Secrets
 

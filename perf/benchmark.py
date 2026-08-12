@@ -226,6 +226,10 @@ That is deliberate. A benchmark dominated by provider latency varies by an
 order of magnitude between runs and can gate nothing. This one is stable
 enough that a 2x regression in Atlas's own code trips a budget.
 
+These executable regression budgets are not production SLOs. The
+[runbook](RUNBOOK.md#reference-slis-and-example-objectives) maps shipped
+signals to example reference-deployment objectives.
+
 ## What these numbers are not
 
 - **Not throughput.** Concurrency here is asyncio tasks against an
@@ -233,8 +237,9 @@ enough that a 2x regression in Atlas's own code trips a budget.
   process boundary, no other tenant on the box.
 - **Not a capacity plan.** For that, run `perf/locustfile.py` against a
   deployed instance and increase load until the error rate breaks 1%.
-- **Not real-provider latency.** Add `ATLAS_PROVIDER=anthropic` and the p99
-  becomes a measurement of somebody else's service.
+- **Not real-provider latency.** This harness forces the scripted provider.
+  Use `perf/locustfile.py` against a deployment configured with the intended
+  provider to measure the full service path.
 
 ## Reading it
 

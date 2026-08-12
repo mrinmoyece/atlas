@@ -7,6 +7,9 @@ gives you an exercise that breaks something on purpose. Work in order.
 Run `make demo` first so you have seen the whole system move before you
 start reading it.
 
+Use the [documentation map](README.md) for canonical ownership and the
+[AI system design case study](ai-system-design.md) for the integrated view.
+
 ---
 
 ## Phase 1 — Context engineering
@@ -54,7 +57,8 @@ injects confident garbage; unsmoothed procedural memory locks onto a lucky
   in each
 - why lessons come only from structured `Finding` objects carrying evidence
 - recency decay applied at retrieval, not deletion at write time
-- Laplace smoothing in `StrategyStats.score`
+- Laplace smoothing in
+  [`StrategyStats.score`](../src/atlas/memory/tiers.py)
 - in the A/B harness, why scoring happens *before* learning
 
 **Exercise.** Delete the `min_score` floor in `SemanticMemory.search` and
@@ -150,7 +154,8 @@ quality a number; a deterministic model makes that number reproducible.
 - the deterministic groundedness check (does the cited file *exist*) — no
   judge needed to catch the worst hallucination class
 - LLM-judge bias controls: position swap, neutral labels, anchored rubric
-- three CI tiers: smoke on every PR, gate on merge, extended nightly
+- three eval tiers: smoke and standard run in CI; extended is manual and
+  exercises every registered pattern
 
 **Exercise.** Add a third fixture repo with its own planted issues and
 traps, extend `ground_truth.yaml` and `scenarios.py`, and check whether the
@@ -160,8 +165,10 @@ gate thresholds in `GATES` still hold.
 
 ## Phase 7 — Production hardening
 
-**Idea.** An agent platform spends money on every request and reads
-attacker-authored content. Both are security properties.
+**Idea.** A live-model agent platform can spend money on every request and
+reads attacker-authored content. Both are security properties. Atlas exercises
+cost paths with its scripted provider; the current Anthropic adapter does not
+yet normalise usage into priced `cost_usd` metadata.
 
 **Read.** `src/atlas/security/`, `src/atlas/api/app.py`,
 `docs/SECURITY_MODEL.md`

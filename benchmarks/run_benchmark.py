@@ -19,10 +19,11 @@ opens `scenarios.py` will see that immediately, and they should - the value
 here is a working measurement apparatus plus a demonstrated understanding of
 what each pattern costs, not a discovery about model behaviour.
 
-To produce real numbers: `ATLAS_PROVIDER=anthropic`, run each scenario N>=10
-times, and report pass-rate distributions rather than point estimates. That
-run has not been done, and until it is, nothing in RESULTS.md is a claim
-about live-model performance.
+To produce real numbers, add a live-provider runner that injects a provider
+model instead of `model_for(repo)`, run each scenario N>=10 times, and report
+pass-rate distributions rather than point estimates. That runner and experiment
+do not exist yet, and until they do, nothing in RESULTS.md is a claim about
+live-model performance.
 """
 
 from __future__ import annotations
@@ -131,9 +132,10 @@ def main() -> int:
         ">",
         "> **What they are not.** A discovery about how real models behave under",
         "> each pattern. The differences below are authored, not observed. Running",
-        "> this against a live provider is one config change",
-        "> (`ATLAS_PROVIDER=anthropic`) and N>=10 repetitions per scenario; that",
-        "> run has not been done, so no row here is evidence about model quality.",
+        "> this against a live provider requires a separate runner that injects",
+        "> a provider model instead of the scripted `model_for(repo)`, plus N>=10",
+        "> repetitions per scenario. That runner and experiment do not exist yet,",
+        "> so no row here is evidence about model quality.",
         "",
         "Regenerate with `make benchmark`.",
         "",
@@ -181,8 +183,8 @@ def main() -> int:
         "",
         "The routing policy above therefore restates each pattern's documented "
         "trade-off, confirmed to be measurable here. Whether a given model "
-        "actually exhibits it is an open question this repository is equipped "
-        "to answer and has not yet answered.",
+        "actually exhibits it is an open question. Answering it requires the "
+        "provider-injected repeated-run harness described above.",
     ]
 
     RESULTS.write_text("\n".join(lines) + "\n")

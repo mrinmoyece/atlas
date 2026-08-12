@@ -2,7 +2,7 @@
 
 **An evaluation-driven multi-agent platform for technical due diligence.** Four specialist agents analyse a repository in parallel — security, architecture, dependency risk, delivery maturity — and return an evidence-backed report. Built on LangGraph, MCP and A2A.
 
-[![CI](https://img.shields.io/badge/CI-lint%20%7C%20tests%20%7C%20evals%20%7C%20SBOM-brightgreen)]() [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]() [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)]()
+[![CI](https://github.com/mrinmoyece/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/mrinmoyece/atlas/actions/workflows/ci.yml) [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]() [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
 ```
 offline unit + regression suite · eval quality gate in CI · 4 reasoning patterns benchmarked · no model API key required
@@ -10,9 +10,9 @@ offline unit + regression suite · eval quality gate in CI · 4 reasoning patter
 
 ## Why this exists
 
-LangChain's 2026 State of Agent Engineering survey found that ~89% of teams running agents in production have observability, but only ~52% have evals. **That 37-point gap is where agent quality dies** — observability tells you what happened, only evals tell you whether it was right.
-
-Atlas is built the other way round: evaluation first, and everything else in service of it.
+Agent teams commonly instrument what happened before they can answer whether
+the result was right. Atlas is built the other way round: evaluation first,
+and everything else in service of it.
 
 | Most agent projects | Atlas |
 |---|---|
@@ -20,7 +20,7 @@ Atlas is built the other way round: evaluation first, and everything else in ser
 | picked one pattern, moved on | four patterns implemented, and a harness that **measures what each costs** |
 | "it has memory" | memory **A/B harness that reported a null result** and a retrieval bug, both published |
 | prompt says "be careful" | tool confinement, ReDoS bounds, RBAC, spend brakes enforced in code and tested |
-| demo runs on the happy path | failure isolation, compaction, timeouts, cost ceilings — each verified by measurement |
+| demo runs on the happy path | failure isolation, compaction, timeouts, pre-call cost brakes — each verified by measurement |
 
 **One caveat up front, because it is the first thing a reviewer should know:**
 the evaluation model is a deterministic scripted oracle. The pattern
@@ -28,8 +28,9 @@ differences below are *authored* in `src/atlas/evals/scenarios.py` to match
 each pattern's documented behaviour, and the harness measures the
 consequences. That makes this a working **measurement apparatus** plus
 evidence I understand what each pattern costs — not a discovery about model
-behaviour. Pointing it at a live model is one config change and has not been
-done. Every claim in this README is scoped accordingly.
+behaviour. A live-provider experiment needs a separate repeated-run harness;
+the current eval and benchmark runners always construct the scripted provider.
+Every claim in this README is scoped accordingly.
 
 ## Architecture
 
@@ -67,6 +68,25 @@ sequenceDiagram
     G-->>U: report + evidence + cost
 ```
 
+## AI System Design
+
+Atlas is designed as a measurable AI system rather than a model wrapper:
+structured state and evidence make outputs testable, specialist isolation keeps
+parallel context bounded, memory has explicit read/write/retention semantics,
+and quality/resource/security controls are executable. The full case study
+documents the request lifecycle, recovery boundary, memory taxonomy,
+evaluation design, trust boundaries, telemetry, measured performance and
+unsupported claims in [docs/ai-system-design.md](docs/ai-system-design.md).
+
+| Competency | Implementation evidence | Measured/generated evidence |
+|---|---|---|
+| State management | [graph state/reducers](src/atlas/graph/state.py), [fan-out/fan-in and in-memory checkpoints](src/atlas/graph/build.py), [graph tests](tests/test_graph_and_patterns.py) | [performance baseline](docs/PERFORMANCE.md); durable restart recovery is explicitly not claimed |
+| Memory strategies | [four tiers](src/atlas/memory/tiers.py), [read/write lifecycle](src/atlas/memory/hub.py), [compaction](src/atlas/context/compaction.py), [memory tests](tests/test_memory.py) | [memory A/B and retrieval failure analysis](docs/MEMORY.md) |
+| Evaluations | [ground truth](evals/golden/ground_truth.yaml), [scoring](src/atlas/evals/scoring.py), [executable gates](src/atlas/evals/runner.py) | [current standard gate snapshot](evals/last_run.md), [pattern comparison](benchmarks/RESULTS.md) |
+| Guardrails | [security layers](src/atlas/api/app.py), [RBAC/rate/spend/audit](src/atlas/security/), [confined tools](src/atlas/tools/repo.py) | [security tests](tests/test_security_and_api.py), [runtime-brake tests](tests/test_runtime_brakes.py) |
+| Observability | [JSON logs](src/atlas/observability/logging.py), [OTel spans](src/atlas/observability/tracing.py), [Prometheus metrics](src/atlas/observability/metrics.py) | [monitoring signals and alert examples](docs/RUNBOOK.md) |
+| Performance optimisation | [bounded graph cache](src/atlas/graph/build.py), [provider reuse](src/atlas/api/app.py), [latency gate](perf/benchmark.py) | [measured cache and p50/p95/p99 evidence](docs/PERFORMANCE.md) |
+
 ## Quick start
 
 ```bash
@@ -82,7 +102,10 @@ make run         # API at :8000   (set ATLAS_API_KEYS first — it denies by def
 make up          # docker compose, hardened container
 ```
 
-Everything above runs **offline against a deterministic scripted model**. Point it at a real model with `ATLAS_PROVIDER=anthropic` and an API key.
+Everything above runs **offline against a deterministic scripted model**. The
+API can use Anthropic with `ATLAS_PROVIDER=anthropic` and the optional
+dependency/key, but current eval, benchmark and cost-accounting evidence remains
+scripted-provider only.
 
 ### Run and use it locally
 
@@ -161,7 +184,7 @@ Read this as *"the harness has enough resolution to separate patterns and
 price them"*, not *"reflexion is the best pattern"*. The behaviours are
 scripted; what is real is the measurement — ground-truth scoring with
 cardinality, trap detection, and per-pattern cost accounting. `react` reaches
-the same F1 as `plan_execute` for **less than half the model calls**, which
+the same F1 as `plan_execute` with **10 fewer model calls**, which
 is the kind of thing a benchmark exists to surface.
 
 **Memory** ([docs/MEMORY.md](docs/MEMORY.md)) — two findings, both published:
@@ -192,7 +215,7 @@ is the kind of thing a benchmark exists to surface.
 
 > That wiring is new, and it is the fix for a defect worth naming: the MCP client was fully implemented and fully tested, and no agent could reach it. `grep -r mcp_layer.client src/` found it imported by one helper, the demo, and the test suite — never by the graph. The README made the claim anyway. A capability no agent can reach is a capability the system does not have.
 
-**6. Brakes that were measured, not assumed.** Three runtime controls were verified to be *decorative* before they were fixed, and each fix is measured: the specialist timeout joined the worker it gave up on (20s hang, 2s timeout, 20s wall — now 2.03s); the run cost ceiling read `0.0` in every parallel branch so it could never fire (now enforced before each model call — `$0.01` ceiling halts a `$0.027` run at 3 findings); the spend reservation was a hardcoded $0.25 against a $5.00 per-run ceiling. Plus: hashed keys with constant-time comparison and deny-by-default, RBAC where *spending money* is privileged, hash-chained audit with truncation detection, CSP/HSTS on **every** path including errors, pure-ASGI body limits, secret redaction at the logging boundary, non-root read-only container, egress NetworkPolicy blocking the cloud metadata endpoint.
+**6. Brakes that were measured, not assumed.** Three runtime controls were verified to be *decorative* before they were fixed, and each fix is measured: the specialist timeout joined the worker it gave up on (20s hang, 2s timeout, 20s wall — now 2.03s); the run-cost check read `0.0` in every parallel branch so it could never fire (now checked before each model call — a `$0.01` brake halts a run that would otherwise cost `$0.027`); the spend reservation was a hardcoded $0.25 against a $5.00 configured maximum. A call already admitted may overshoot, and live Anthropic usage is not currently priced, so monetary enforcement is claimed only for the scripted path. Plus: hashed keys with constant-time comparison and deny-by-default, RBAC where *spending money* is privileged, hash-chained audit with truncation detection, CSP/HSTS on **every** path including errors, pure-ASGI body limits, secret redaction at the logging boundary, non-root read-only container, egress NetworkPolicy blocking the cloud metadata endpoint.
 
 ## What an adversarial review found (and what happened next)
 
@@ -304,10 +327,12 @@ docs/               architecture, ADRs, learning path, runbook, limitations
 
 | Doc | Covers |
 |---|---|
+| [docs/README.md](docs/README.md) | Canonical documentation map and all architecture decision records |
 | [docs/LEARNING_PATH.md](docs/LEARNING_PATH.md) | **Start here** — the 7-phase curriculum this repo teaches, in order |
+| [docs/ai-system-design.md](docs/ai-system-design.md) | Portfolio case study: lifecycle, memory, evals, guardrails, observability and performance evidence |
 | [docs/architecture.md](docs/architecture.md) | Components, invariants, data flow |
 | [docs/adr/](docs/adr/) | 8 decision records with alternatives and consequences |
-| [docs/EVALS.md](docs/EVALS.md) | Evaluation methodology and the three CI tiers |
+| [docs/EVALS.md](docs/EVALS.md) | Evaluation methodology, two CI tiers and the manual extended tier |
 | [docs/MEMORY.md](docs/MEMORY.md) | Memory design + measured A/B result |
 | [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) | Threat model and control mapping |
 | [docs/FAILURE_MODES.md](docs/FAILURE_MODES.md) | What breaks and what happens |
