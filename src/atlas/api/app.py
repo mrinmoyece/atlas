@@ -24,6 +24,7 @@ import json
 import os
 import threading
 import time
+from collections import OrderedDict
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
+from langchain_core.language_models import BaseChatModel
 from starlette.background import BackgroundTask
 
 from atlas.api.schemas import AnalysisRequest, AnalysisResponse, FindingView, HealthResponse
@@ -404,8 +406,10 @@ def create_app(
                 "model_calls": 0,
                 "cost_usd": 0.0,
                 "report": None,
+                "strategy": None,
             }
             collected: list[Any] = []
+            summaries: dict[str, str] = {}
             stream_errors: dict[str, str] = {}
 
             def emit(payload: str) -> None:
@@ -426,12 +430,22 @@ def create_app(
                         for node, delta in update.items():
                             stream_errors.update(delta.get("errors") or {})
                             if node == "plan":
-                                emit(_sse("plan", {"specialists": delta.get("plan", [])}))
+                                totals["strategy"] = delta.get("strategy")
+                                emit(
+                                    _sse(
+                                        "plan",
+                                        {
+                                            "specialists": delta.get("plan", []),
+                                            "strategy": totals["strategy"],
+                                        },
+                                    )
+                                )
                                 continue
                             if node == "synthesise":
                                 totals["report"] = DueDiligenceReport(
                                     repo=body.repo,
                                     findings=tuple(collected),
+                                    summaries=dict(summaries),
                                     verdict=delta.get("verdict", ""),
                                     tokens_used=int(totals["tokens_used"]),
                                     cost_usd=round(float(totals["cost_usd"]), 8),
@@ -442,6 +456,7 @@ def create_app(
                                 continue
                             findings = delta.get("findings") or []
                             collected.extend(findings)
+                            summaries.update(delta.get("summaries") or {})
                             totals["findings"] += len(findings)
                             totals["tokens_used"] += int(delta.get("tokens_used") or 0)
                             totals["model_calls"] += int(delta.get("model_calls") or 0)
@@ -464,12 +479,15 @@ def create_app(
                     # memory into only one of two run routes is how "the hub
                     # stays empty forever" comes back through the side door.
                     if hub.enabled and totals["report"] is not None:
+                        strategy = totals["strategy"]
+                        if not isinstance(strategy, str):
+                            raise RuntimeError("graph plan omitted the selected strategy")
                         report = totals["report"].model_copy(update={"duration_ms": duration_ms})
                         totals["report"] = report
                         hub.learn_from_report(
                             report,
                             context_key=graph_context_key({"repo_root": str(root)}),
-                            strategy=body.pattern or "react",
+                            strategy=strategy,
                             success=not report.errors
                             and any(f.is_grounded() for f in report.findings),
                         )
@@ -560,11 +578,39 @@ def create_app(
     return app
 
 
-_provider_cache: dict[int, Any] = {}
-_provider_cache_lock = threading.Lock()
+class _ProviderCache:
+    """Bounded provider clients keyed by configuration object identity."""
+
+    MAX_ENTRIES = 8
+
+    def __init__(self) -> None:
+        self._entries: OrderedDict[int, tuple[BaseChatModel, Settings]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get_or_build(self, cfg: Settings) -> BaseChatModel:
+        key = id(cfg)
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is not None:
+                self._entries.move_to_end(key)
+                return entry[0]
+
+            client = build_model(cfg)
+            # Retaining cfg makes its id unique for the lifetime of this entry.
+            self._entries[key] = (client, cfg)
+            while len(self._entries) > self.MAX_ENTRIES:
+                self._entries.popitem(last=False)
+            return client
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
 
 
-def _provider_client(cfg: Settings):
+_provider_cache = _ProviderCache()
+
+
+def _provider_client(cfg: Settings) -> BaseChatModel:
     """One provider client per configuration, reused across requests.
 
     Building a `ChatAnthropic` (or any provider client) per request is
@@ -577,14 +623,11 @@ def _provider_client(cfg: Settings):
     17.7ms, a **51% saving**, almost all of it graph compilation that
     LangGraph performs by running `inspect.getsource` over every node.
 
-    `id(cfg)` is the cache key so a differently-configured Settings does not
-    silently reuse a client built from the old one.
+    Configuration identity is retained strongly while its entry is cached, so
+    object-ID reuse cannot return a stale client. LRU eviction bounds both
+    clients and retained configurations.
     """
-    key = id(cfg)
-    with _provider_cache_lock:
-        if key not in _provider_cache:
-            _provider_cache[key] = build_model(cfg)
-        return _provider_cache[key]
+    return _provider_cache.get_or_build(cfg)
 
 
 def _model_for(repo: str, cfg: Settings):

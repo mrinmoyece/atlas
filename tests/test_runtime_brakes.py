@@ -16,7 +16,7 @@ import pytest
 
 from atlas.config import Settings
 from atlas.evals.scenarios import model_for
-from atlas.graph.build import _ledger, run_due_diligence
+from atlas.graph.build import _ledger, _RunLedger, run_due_diligence
 from atlas.llm.scripted import ScriptedChatModel
 from atlas.tools.repo import (
     GREP_DEADLINE_S,
@@ -325,6 +325,29 @@ def test_the_ledger_does_not_leak_keys_across_runs(legacy_root):
             settings=Settings(provider="scripted"),
         )
     assert len(_ledger._by_specialist) == before, "ledger keys leaked after the run finished"
+
+
+def test_retired_run_tombstones_are_bounded_and_late_updates_cannot_resurrect_state():
+    now = [0.0]
+    ledger = _RunLedger(max_retired=2, retired_ttl_s=10.0, clock=lambda: now[0])
+
+    ledger.begin("old")
+    ledger.report("old", "security", 0.1)
+    ledger.reset("old")
+    for run_key in ("newer", "newest"):
+        ledger.begin(run_key)
+        ledger.reset(run_key)
+
+    assert list(ledger._retired) == ["newer", "newest"]
+    now[0] = 11.0
+
+    # A daemon specialist can return after both eviction and expiry. Unknown
+    # runs are denied unless begin() admitted them, so it cannot recreate a
+    # spend entry that no future reset would clean up.
+    assert ledger.report("old", "security", 9.9) == 0.0
+    ledger.settle("newer", "security", 9.9)
+    assert ledger._retired == {}
+    assert ledger._by_specialist == {}
 
 
 # ---------------------------------------------------------------------------

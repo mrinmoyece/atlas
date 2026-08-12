@@ -37,7 +37,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -77,26 +77,56 @@ class _RunLedger:
 
     Timed-out specialists continue as daemon threads; their late
     `report()`/`settle()` calls must not re-insert entries for a run that has
-    already been reset.  `_retired` holds run keys that have been cleaned up;
-    any subsequent call for a retired key is silently dropped.
+    already been reset. Runs must therefore be admitted with `begin()` before
+    spend is accepted. `_retired` retains a bounded, expiring diagnostic tail;
+    once a tombstone expires, the absent active-run admission still rejects
+    late updates.
     """
 
-    def __init__(self) -> None:
+    MAX_RETIRED = 1_024
+    RETIRED_TTL_S = 300.0
+
+    def __init__(
+        self,
+        *,
+        max_retired: int = MAX_RETIRED,
+        retired_ttl_s: float = RETIRED_TTL_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._by_specialist: dict[tuple[str, str], float] = {}
-        self._retired: set[str] = set()
+        self._active: set[str] = set()
+        self._retired: OrderedDict[str, float] = OrderedDict()
+        self._max_retired = max(1, max_retired)
+        self._retired_ttl_s = max(0.0, retired_ttl_s)
+        self._clock = clock
         self._lock = threading.Lock()
+
+    def _prune_retired_locked(self, now: float) -> None:
+        while self._retired:
+            _, expires_at = next(iter(self._retired.items()))
+            if expires_at > now:
+                break
+            self._retired.popitem(last=False)
+
+    def begin(self, run_key: str) -> None:
+        """Admit a new run before any specialist can report spend."""
+        with self._lock:
+            self._prune_retired_locked(self._clock())
+            self._active.add(run_key)
 
     def report(self, run_key: str, specialist: str, spent_so_far: float) -> float:
         """Record a specialist's running total; return the whole-run total."""
         with self._lock:
-            if run_key in self._retired:
+            self._prune_retired_locked(self._clock())
+            if run_key not in self._active:
                 return 0.0
             self._by_specialist[(run_key, specialist)] = max(0.0, spent_so_far)
             return sum(v for (r, _), v in self._by_specialist.items() if r == run_key)
 
     def settle(self, run_key: str, specialist: str, final_cost: float) -> None:
         with self._lock:
-            if run_key in self._retired:
+            self._prune_retired_locked(self._clock())
+            if run_key not in self._active:
                 return
             self._by_specialist[(run_key, specialist)] = max(0.0, final_cost)
 
@@ -106,9 +136,15 @@ class _RunLedger:
 
     def reset(self, run_key: str) -> None:
         with self._lock:
+            now = self._clock()
+            self._prune_retired_locked(now)
+            self._active.discard(run_key)
             for key in [k for k in self._by_specialist if k[0] == run_key]:
                 del self._by_specialist[key]
-            self._retired.add(run_key)
+            self._retired[run_key] = now + self._retired_ttl_s
+            self._retired.move_to_end(run_key)
+            while len(self._retired) > self._max_retired:
+                self._retired.popitem(last=False)
 
 
 _ledger = _RunLedger()
@@ -606,6 +642,7 @@ def stream_due_diligence(
     )
     run_id = uuid.uuid4().hex
     initial = _initial_state(repo, repo_root, categories, run_id)
+    _ledger.begin(run_id)
     try:
         yield from app.stream(
             initial,
@@ -709,6 +746,7 @@ def run_due_diligence(
     )
     run_id = uuid.uuid4().hex
     initial = _initial_state(repo, repo_root, categories, run_id)
+    _ledger.begin(run_id)
     try:
         final = app.invoke(
             initial, config={"configurable": {"thread_id": thread_id or f"dd-{repo}"}}

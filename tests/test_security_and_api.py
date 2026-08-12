@@ -7,9 +7,11 @@ import json
 import httpx
 import pytest
 
-from atlas.api.app import create_app
+from atlas.api.app import _ProviderCache, create_app
 from atlas.config import Settings
 from atlas.domain.types import DueDiligenceReport
+from atlas.evals.scenarios import model_for
+from atlas.memory.hub import MemoryHub
 from atlas.security import ApiKeyAuthenticator, AuditLog, AuthError, Role, hash_key
 from atlas.security.ratelimit import RateLimiter, TokenBucket
 
@@ -295,6 +297,71 @@ async def test_streaming_emits_specialist_then_complete(client_app, auth_headers
             assert len(learned) == 1
             assert learned[0].total_steps > 0
             assert learned[0].total_cost_usd > 0
+
+
+async def test_streaming_learns_the_planned_strategy_and_complete_report(
+    monkeypatch, authenticator, auth_headers
+):
+    hub = MemoryHub(enabled=True)
+    for _ in range(10):
+        hub.procedural.record(context_key="repo:standard", strategy="rewoo", success=True)
+
+    captured: dict[str, object] = {}
+    original_learn = hub.learn_from_report
+
+    def capture(report, **kwargs):
+        captured["report"] = report
+        captured.update(kwargs)
+        return original_learn(report, **kwargs)
+
+    monkeypatch.setattr(hub, "learn_from_report", capture)
+    app = create_app(
+        settings=Settings(provider="scripted"),
+        authenticator=authenticator,
+        memory=hub,
+    )
+
+    async with await _client(app) as c:
+        async with app.router.lifespan_context(app):
+            response = await c.post(
+                "/v1/analyses/stream",
+                json={"repo": "legacy-billing", "categories": ["security"]},
+                headers=auth_headers["analyst"],
+            )
+
+    assert response.status_code == 200
+    assert captured["strategy"] == "rewoo"
+    report = captured["report"]
+    assert isinstance(report, DueDiligenceReport)
+    assert report.summaries.keys() == {"security"}
+    assert report.model_calls > 0
+    assert report.tokens_used > 0
+    learned = {row.strategy: row for row in hub.procedural.table("repo:standard")}
+    assert learned["rewoo"].attempts == 11
+    assert "react" not in learned
+
+
+def test_provider_cache_is_bounded_and_retains_the_passed_configuration(monkeypatch):
+    built_with: list[Settings] = []
+
+    def fake_build(cfg):
+        built_with.append(cfg)
+        return model_for("legacy-billing")
+
+    monkeypatch.setattr("atlas.api.app.build_model", fake_build)
+    cache = _ProviderCache()
+    configs = [
+        Settings(provider="anthropic", model=f"model-{index}")
+        for index in range(cache.MAX_ENTRIES + 3)
+    ]
+
+    clients = [cache.get_or_build(cfg) for cfg in configs]
+
+    assert built_with == configs
+    assert cache.get_or_build(configs[-1]) is clients[-1]
+    assert len(cache._entries) == cache.MAX_ENTRIES
+    retained_configs = [entry[1] for entry in cache._entries.values()]
+    assert retained_configs == configs[-cache.MAX_ENTRIES :]
 
 
 async def test_audit_records_every_privileged_action(client_app, auth_headers):
