@@ -110,9 +110,20 @@ class _RunLedger:
 
     def begin(self, run_key: str) -> None:
         """Admit a new run before any specialist can report spend."""
+        if not isinstance(run_key, str) or not run_key:
+            raise ValueError("run_id must be a non-empty string")
         with self._lock:
             self._prune_retired_locked(self._clock())
             self._active.add(run_key)
+
+    def require_active(self, run_key: str) -> None:
+        """Fail unless the run was admitted and has not been retired."""
+        if not isinstance(run_key, str) or not run_key:
+            raise ValueError("run_id is required for cost governance")
+        with self._lock:
+            self._prune_retired_locked(self._clock())
+            if run_key not in self._active:
+                raise RuntimeError(f"run_id {run_key!r} was not admitted to the cost ledger")
 
     def report(self, run_key: str, specialist: str, spent_so_far: float) -> float:
         """Record a specialist's running total; return the whole-run total."""
@@ -120,6 +131,15 @@ class _RunLedger:
             self._prune_retired_locked(self._clock())
             if run_key not in self._active:
                 return 0.0
+            self._by_specialist[(run_key, specialist)] = max(0.0, spent_so_far)
+            return sum(v for (r, _), v in self._by_specialist.items() if r == run_key)
+
+    def report_admitted(self, run_key: str, specialist: str, spent_so_far: float) -> float:
+        """Record spend for an admitted run, failing closed if it was retired."""
+        with self._lock:
+            self._prune_retired_locked(self._clock())
+            if run_key not in self._active:
+                raise RuntimeError(f"run_id {run_key!r} is not active in the cost ledger")
             self._by_specialist[(run_key, specialist)] = max(0.0, spent_so_far)
             return sum(v for (r, _), v in self._by_specialist.items() if r == run_key)
 
@@ -154,7 +174,7 @@ def _make_cost_guard(run_key: str, category: Category, ceiling: float):
     """Guard consulted before every model call in this specialist."""
 
     def guard(spent_by_this_specialist: float) -> bool:
-        run_total = _ledger.report(run_key, category.value, spent_by_this_specialist)
+        run_total = _ledger.report_admitted(run_key, category.value, spent_by_this_specialist)
         return run_total < ceiling
 
     return guard
@@ -284,6 +304,10 @@ def build_graph(
     def plan_node(state: DDState) -> dict:
         """Supervisor: choose specialists by *capability*, not by name, and
         pull any relevant prior experience from memory."""
+        run_id = state.get("run_id")
+        if not isinstance(run_id, str):
+            raise ValueError("run_id is required for cost governance")
+        _ledger.require_active(run_id)
         with span("graph.plan", repo=state.get("repo", "")):
             wanted = state.get("requested_categories") or [c.value for c in categories]
             # Capability-driven routing: the roster is discovered from agent
@@ -349,7 +373,10 @@ def build_graph(
             # analyses of the same repo shared one ceiling (run B halted by
             # run A's spend), and either run's `reset` wiped the other's four
             # in-flight subtotals, under-counting its ceiling by up to 4x.
-            run_key = state.get("run_id") or state.get("repo", "")
+            run_key = state.get("run_id")
+            if not isinstance(run_key, str):
+                raise ValueError("run_id is required for cost governance")
+            _ledger.require_active(run_key)
             strategy_name = state.get("strategy") or pattern_name or DEFAULT_PATTERN
             usage: dict[str, int | float] = {
                 "model_calls": 0,
