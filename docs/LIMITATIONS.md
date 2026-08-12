@@ -37,8 +37,10 @@ upgrade path.
   Upgrade: Postgres for episodic/procedural, pgvector for semantic.
 - **Deterministic lesson distillation.** Cheap and safe; less rich than
   LLM-written lessons. Upgrade documented in ADR-0005.
-- **Single `context_key`.** Procedural memory does not yet segment by
-  language or repo size, so strategy learning is coarse.
+- **Repository-size-only `context_key`.** Procedural memory segments strategy
+  learning into bounded `repo:standard` and `repo:large` buckets. It does not
+  yet distinguish language, framework or tenant, so learning remains coarse
+  within each size class.
 
 ## Deployment
 - **Single replica, and `k8s/deployment.yaml` says `replicas: 1`.** Four
@@ -123,8 +125,9 @@ upgrade path.
 - No UI. SSE streaming exists so one could be built.
 
 ## What I would do differently
-1. Design `context_key` segmentation into procedural memory from day one —
-   retrofitting it means re-learning statistics from scratch.
+1. Design richer `context_key` segmentation into procedural memory from day
+   one. Repository size is now represented, but adding language, framework or
+   tenant dimensions means re-learning statistics for the new buckets.
 2. Put the eval gate in CI *before* writing the second pattern; it changed
    how I wrote every pattern after it.
 3. Make the scripted-model route matcher recency-aware from the start

@@ -76,12 +76,20 @@ demo paths it is not: `ScriptedChatModel` walks a fixture's turns in order,
 so it is stateful and must be per-run — two concurrent runs sharing one
 would consume each other's script. Measured hit rate there is **0/6**.
 
-The cache therefore buys nothing for the scripted paths and a great deal
-for a deployed service, where `_provider_client` now holds one long-lived
-provider client per configuration. `atlas_graph_compile_cache_hits_total`
-and `..._misses_total` exist precisely so this is visible rather than
-assumed — a miss rate near 100% means callers are constructing models per
-run and the cache is dead weight.
+The compiled-graph cache therefore buys nothing for the measured scripted
+paths. The API separately keeps a bounded eight-entry identity LRU of live
+provider clients. Each entry strongly retains its `Settings` object while
+cached so object-ID reuse cannot return a client for a different
+configuration; eviction bounds both clients and retained settings. Reusing
+one of those client objects can make it eligible for compiled-graph reuse,
+but the provider-client LRU itself was not isolated in this benchmark and no
+provider connection-pool saving is claimed here.
+
+The graph cache is a distinct bounded eight-entry identity cache in
+`src/atlas/graph/build.py`. `atlas_graph_compile_cache_hits_total` and
+`..._misses_total` make its reuse visible rather than assumed — a miss rate
+near 100% means callers are constructing models per run and compiled-graph
+reuse is providing no benefit.
 
 ### What was NOT cached, and why
 

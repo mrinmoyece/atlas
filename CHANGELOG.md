@@ -132,6 +132,15 @@ version; it is not a published GitHub release and no release tag exists yet.
   the graph's real repository-size memory context.
 - Specialist failures retain usage incurred before the exception, and streaming
   reports carry token/model-call totals into procedural-memory statistics.
+- Streaming procedural learning now records the graph plan's selected strategy
+  and the complete structured report, including specialist summaries and usage,
+  matching non-streaming learning semantics.
+- Provider clients now use a bounded eight-entry identity LRU that retains each
+  cached `Settings` object; this is separate from the bounded compiled-graph
+  cache.
+- Graph cost governance now requires a unique admitted run ID before execution.
+  Missing, unknown and retired IDs fail closed before model calls, while retired
+  tombstones are TTL- and capacity-bounded without weakening active admission.
 
 ## [0.1.0] - 2026-08-03
 
