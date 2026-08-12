@@ -22,9 +22,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 import time
 from contextlib import asynccontextmanager, contextmanager
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -560,8 +560,11 @@ def create_app(
     return app
 
 
-@lru_cache(maxsize=4)
-def _provider_client(provider: str, model_name: str, cfg_id: int):
+_provider_cache: dict[int, Any] = {}
+_provider_cache_lock = threading.Lock()
+
+
+def _provider_client(cfg: Settings):
     """One provider client per configuration, reused across requests.
 
     Building a `ChatAnthropic` (or any provider client) per request is
@@ -574,10 +577,14 @@ def _provider_client(provider: str, model_name: str, cfg_id: int):
     17.7ms, a **51% saving**, almost all of it graph compilation that
     LangGraph performs by running `inspect.getsource` over every node.
 
-    `cfg_id` is in the key so a differently-configured Settings does not
+    `id(cfg)` is the cache key so a differently-configured Settings does not
     silently reuse a client built from the old one.
     """
-    return build_model(get_settings())
+    key = id(cfg)
+    with _provider_cache_lock:
+        if key not in _provider_cache:
+            _provider_cache[key] = build_model(cfg)
+        return _provider_cache[key]
 
 
 def _model_for(repo: str, cfg: Settings):
@@ -594,7 +601,7 @@ def _model_for(repo: str, cfg: Settings):
             return model_for(repo)
         except KeyError:
             return build_model(cfg)
-    return _provider_client(cfg.provider, cfg.model, id(cfg))
+    return _provider_client(cfg)
 
 
 def _categories(body: AnalysisRequest) -> tuple[Category, ...]:

@@ -74,20 +74,30 @@ class _RunLedger:
     Per-specialist subtotals are tracked so a specialist's incremental
     reports can be reconciled against its final figure without double
     counting.
+
+    Timed-out specialists continue as daemon threads; their late
+    `report()`/`settle()` calls must not re-insert entries for a run that has
+    already been reset.  `_retired` holds run keys that have been cleaned up;
+    any subsequent call for a retired key is silently dropped.
     """
 
     def __init__(self) -> None:
         self._by_specialist: dict[tuple[str, str], float] = {}
+        self._retired: set[str] = set()
         self._lock = threading.Lock()
 
     def report(self, run_key: str, specialist: str, spent_so_far: float) -> float:
         """Record a specialist's running total; return the whole-run total."""
         with self._lock:
+            if run_key in self._retired:
+                return 0.0
             self._by_specialist[(run_key, specialist)] = max(0.0, spent_so_far)
             return sum(v for (r, _), v in self._by_specialist.items() if r == run_key)
 
     def settle(self, run_key: str, specialist: str, final_cost: float) -> None:
         with self._lock:
+            if run_key in self._retired:
+                return
             self._by_specialist[(run_key, specialist)] = max(0.0, final_cost)
 
     def total(self, run_key: str) -> float:
@@ -98,6 +108,7 @@ class _RunLedger:
         with self._lock:
             for key in [k for k in self._by_specialist if k[0] == run_key]:
                 del self._by_specialist[key]
+            self._retired.add(run_key)
 
 
 _ledger = _RunLedger()

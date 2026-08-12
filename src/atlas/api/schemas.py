@@ -50,7 +50,15 @@ class AnalysisRequest(BaseModel):
         unknown = set(v) - VALID_CATEGORIES
         if unknown:
             raise ValueError(f"unknown categories: {sorted(unknown)}")
-        return v
+        # Deduplicate while preserving order so duplicate inputs do not
+        # cause a graph-construction 500 (LangGraph rejects duplicate node names).
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for cat in v:
+            if cat not in seen:
+                seen.add(cat)
+                deduped.append(cat)
+        return deduped
 
 
 class EvidenceView(BaseModel):
