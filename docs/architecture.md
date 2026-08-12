@@ -92,13 +92,14 @@ POST /v1/analyses
   → RBAC: run:create required
   → rate limit (token bucket) + pre-flight spend budget
   → audit: run:create
+  → create unique run_id and admit it to the run-cost ledger
   → graph.invoke
        plan       : recall memory, pick strategy, select specialists by capability
        fan-out    : 4 specialists run concurrently, isolated contexts
                      each: pattern loop → compaction → tools → parse → validate
        fan-in     : reducers merge findings/summaries/costs/errors
        synthesise : verdict derived from structured findings
-  → settle reported spend, audit: run:complete
+  → retire run_id; settle reported spend, audit: run:complete
   → response: findings with evidence, counts, cost, request id
 ```
 

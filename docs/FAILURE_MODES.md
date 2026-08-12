@@ -69,13 +69,19 @@ adapter are separate required fixes.
 ## 9. Cost runaway
 **Behaviour.** Four independent brakes in the priced scripted path:
 per-specialist step budget, context budget, per-principal spend reservation,
-and a run ledger checked before each model call. Cost metrics support alerting.
+and a run ledger checked before each model call. Each helper-driven execution
+creates a unique `run_id`, admits it before graph execution and retires it in
+`finally`. A direct compiled-graph call with a missing, unknown or retired ID
+fails closed in the plan node before any model call. Retired tombstones are a
+TTL- and capacity-bounded diagnostic tail; the active-admission set remains
+authoritative even after a tombstone expires or is evicted. Cost metrics
+support alerting.
 **Residual risk.** An admitted call can take a run beyond the configured
 maximum. The current Anthropic adapter does not price usage into `cost_usd`,
 so sequential live-provider requests settle at zero and monetary controls are
 not effective on that path; see `LIMITATIONS.md`.
-**Tested by** `tests/test_runtime_brakes.py` for reservations and pre-call
-braking.
+**Tested by** `tests/test_runtime_brakes.py` for reservations, admission,
+retirement and pre-call braking.
 
 ## 10. Eval/fixture drift
 **Behaviour.** `test_fixtures_and_ground_truth_stay_in_sync` fails if ground

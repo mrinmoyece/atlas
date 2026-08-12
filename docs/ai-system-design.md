@@ -85,7 +85,12 @@ principal/request-specific LangGraph thread ID, and moves blocking graph work
 to a worker thread ([API request path](../src/atlas/api/app.py)). Streaming uses
 LangGraph `stream_mode="updates"` and drains node updates concurrently, so a
 specialist event is emitted when that branch completes rather than after the
-whole report exists ([streaming implementation](../src/atlas/api/app.py),
+whole report exists. It captures the plan node's actual selected strategy and
+assembles the complete structured report, including specialist summaries,
+errors, tokens, model calls, cost and duration, before procedural learning. This keeps
+streaming memory writes equivalent to the non-streaming path rather than
+learning from the requested/default strategy or a partial report
+([streaming implementation](../src/atlas/api/app.py),
 [streaming regression test](../tests/test_security_and_api.py)).
 
 ### Shared state and merge semantics
@@ -108,9 +113,14 @@ branch ([graph tests](../tests/test_graph_and_patterns.py)).
 
 The run-cost brake cannot rely on graph state because every branch sees the
 pre-fan-out value. Atlas therefore uses a locked, run-ID-scoped ledger that is
-consulted immediately before each model call and cleared in `finally`. A call
-already admitted may take the total beyond the configured maximum, so this is
-a brake with bounded-by-call overshoot, not an atomic hard ceiling
+consulted immediately before each model call. Each helper execution creates a
+unique ID, admits it before invoking the graph and retires it in `finally`.
+Direct compiled-graph invocation with a missing, unknown or retired ID fails
+in the plan node before any model call. Retired-ID tombstones are bounded by
+TTL and capacity for diagnostics; active admission is authoritative, so
+expiry or eviction cannot re-admit late work. A call already admitted may
+take the total beyond the configured maximum, so this is a brake with
+bounded-by-call overshoot, not an atomic hard ceiling
 ([run ledger](../src/atlas/graph/build.py),
 [runtime-brake tests](../tests/test_runtime_brakes.py)).
 
@@ -374,9 +384,10 @@ of its CI gate:
   reducers ([graph topology](../src/atlas/graph/build.py)).
 - API graph execution and streaming producers run off the event loop
   ([API concurrency](../src/atlas/api/app.py)).
-- Real provider clients are reused, preserving their connection pools and
-  enabling compiled-graph reuse; stateful scripted models remain per-run to
-  avoid turn-sequence corruption ([provider cache](../src/atlas/api/app.py)).
+- Real provider clients use a bounded eight-entry identity LRU; each cached
+  entry retains its `Settings` object so identity cannot be recycled while the
+  entry is live. Stateful scripted models remain per-run to avoid turn-sequence
+  corruption ([provider cache](../src/atlas/api/app.py)).
 - Compiled graphs are cached by model/settings/memory/registry/category
   identity in a locked, bounded eight-entry cache. Compilation happens outside
   the lock; caller-supplied checkpointers bypass caching
@@ -387,13 +398,14 @@ of its CI gate:
   ([configuration](../src/atlas/config.py),
   [runtime brakes](../tests/test_runtime_brakes.py)).
 
-Profiling measured graph compilation at 9.9 ms of a 38.4 ms run. Reusing the
-model/compiled graph reduced median run time from 36.2 ms to 17.7 ms, a measured
-18.5 ms (51%) saving. Scripted eval/demo runs create a model per run and
-therefore recorded a 0/6 cache hit rate; the optimisation benefits the
-long-lived provider-client path, not those harnesses. Tool-result caching was
-not added because measurement found 29 calls and zero redundant calls across
-the compared repo/pattern runs
+The provider-client LRU and compiled-graph cache are separate bounds. A reused
+provider object is eligible for graph-cache reuse, but provider construction
+and connection-pool savings were not isolated. Profiling measured graph
+compilation at 9.9 ms of a 38.4 ms run. Reusing the model/compiled graph reduced
+median run time from 36.2 ms to 17.7 ms, a measured 18.5 ms (51%) saving.
+Scripted eval/demo runs create a model per run and therefore recorded a 0/6
+graph-cache hit rate. Tool-result caching was not added because measurement
+found 29 calls and zero redundant calls across the compared repo/pattern runs
 ([performance analysis](PERFORMANCE.md)).
 
 The committed latency baseline drives the ASGI app in-process with a scripted

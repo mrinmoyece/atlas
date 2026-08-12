@@ -79,6 +79,13 @@ offline tests. The current Anthropic adapter does not convert usage into
 `ATLAS_DAILY_SPEND_USD` as monetary controls for live-provider traffic
 ([limitation](LIMITATIONS.md#security)).
 
+Cost governance has two separate admission layers: the API reserves the
+per-run ceiling against the principal's daily budget, while the graph helper
+creates and admits a unique internal `run_id` before execution. Use
+`run_due_diligence` or `stream_due_diligence`; invoking a compiled graph
+directly without an admitted ID fails closed before model work begins. The
+run ID is runtime state, not a client-supplied API field.
+
 Generate a key hash:
 ```bash
 python -c "from atlas.security import hash_key; print(hash_key('your-key'))"
